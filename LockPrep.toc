@@ -1,0 +1,8 @@
+## Interface: 20506, 20505
+## Title: LockPrep
+## Notes: Warlock arena prep helper - state-aware "next setup step" button + bracket-aware countdown checklist.
+## Author: boyaloxer
+## Version: 0.9.3
+## SavedVariables: LockPrepDB
+
+LockPrep.lua
