@@ -556,6 +556,12 @@ local function AutoTradeOn()
     return not (LockPrepDB and LockPrepDB.autoTrade == false)
 end
 
+-- window is OFF by default now (toggle via the minimap icon). Opt in to have it
+-- pop automatically when you zone into an arena.
+local function AutoShowOn()
+    return LockPrepDB and LockPrepDB.autoShow == true
+end
+
 local function FindBagItem(name)
     for bag = 0, 4 do
         local slots = GetNumSlots(bag) or 0
@@ -630,7 +636,7 @@ end)
 -- Options panel (checkboxes to include/exclude step groups)
 -- =====================================================================
 local opt = CreateFrame("Frame", "LockPrepOptions", UIParent, "BackdropTemplate")
-opt:SetSize(300, 60 + #GROUPS * 22 + 116)
+opt:SetSize(300, 60 + #GROUPS * 22 + 140)
 opt:SetPoint("CENTER")
 opt:SetBackdrop({
     bgFile   = "Interface\\Buttons\\WHITE8X8",
@@ -698,13 +704,25 @@ ancb:SetScript("OnClick", function(self)
     LockPrepDB.announce = self:GetChecked() and true or false
 end)
 
+local ascb = CreateFrame("CheckButton", nil, opt, "UICheckButtonTemplate")
+ascb:SetSize(22, 22)
+ascb:SetPoint("TOPLEFT", 12, extraY - 60)
+local aslbl = ascb:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+aslbl:SetPoint("LEFT", ascb, "RIGHT", 2, 0)
+aslbl:SetText("Auto-show window when entering an arena")
+ascb:SetScript("OnShow", function(self) self:SetChecked(AutoShowOn()) end)
+ascb:SetScript("OnClick", function(self)
+    LockPrepDB = LockPrepDB or {}
+    LockPrepDB.autoShow = self:GetChecked() and true or false
+end)
+
 -- mount selector: pick from your learned mounts (or /lp mount <name>)
 local mlbl = opt:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-mlbl:SetPoint("TOPLEFT", 16, extraY - 66)
+mlbl:SetPoint("TOPLEFT", 16, extraY - 90)
 mlbl:SetText("Gate mount:")
 
 local mdd = CreateFrame("Frame", "LockPrepMountDropDown", opt, "UIDropDownMenuTemplate")
-mdd:SetPoint("TOPLEFT", 62, extraY - 60)
+mdd:SetPoint("TOPLEFT", 62, extraY - 84)
 UIDropDownMenu_SetWidth(mdd, 150)
 
 local function SetMount(name)
@@ -748,6 +766,43 @@ end
 
 -- right-click the checklist to open options
 ui:SetScript("OnMouseUp", function(_, mb) if mb == "RightButton" then ToggleOptions() end end)
+
+-- =====================================================================
+-- Minimap button (LibDBIcon) - the round, bordered icon on the minimap
+-- =====================================================================
+local ToggleWindow  -- fwd (defined with the window show/hide flags below)
+local LDB = LibStub and LibStub("LibDataBroker-1.1", true)
+local DBIcon = LibStub and LibStub("LibDBIcon-1.0", true)
+local ldbObj
+if LDB then
+    ldbObj = LDB:NewDataObject("LockPrep", {
+        type = "launcher",
+        text = "LockPrep",
+        icon = "Interface\\Icons\\INV_Stone_04", -- healthstone
+        OnClick = function(_, mb)
+            if mb == "RightButton" then
+                ToggleOptions()
+            else
+                ToggleWindow()
+            end
+        end,
+        OnTooltipShow = function(tt)
+            tt:AddLine("LockPrep")
+            tt:AddLine("|cffffffffLeft-click|r  toggle the checklist", 1, 1, 1)
+            tt:AddLine("|cffffffffRight-click|r  options", 1, 1, 1)
+        end,
+    })
+end
+
+-- Left-click toggles the window; respects the manual show/hide flags so it
+-- behaves the same as /lp show|hide.
+ToggleWindow = function()
+    if ui:IsShown() then
+        ui.userHidden = true; ui.preview = false; HideUI()
+    else
+        ui.userHidden = false; ui.preview = true; ShowUI()
+    end
+end
 
 -- =====================================================================
 -- Events
@@ -794,23 +849,32 @@ end
 
 ev:SetScript("OnEvent", function(self, event, arg1, arg2)
     if event == "PLAYER_LOGIN" then
+        LockPrepDB = LockPrepDB or {}
         ApplyPos()
-        ui.locked = LockPrepDB and LockPrepDB.locked or false
+        ui.locked = LockPrepDB.locked or false
         UpdateSpellstoneButton()
+        if DBIcon and ldbObj then
+            LockPrepDB.minimap = LockPrepDB.minimap or {}
+            if not DBIcon:IsRegistered("LockPrep") then
+                DBIcon:Register("LockPrep", ldbObj, LockPrepDB.minimap)
+            end
+        end
         if not GetBindingKey("CLICK LockPrepButton:LeftButton") then
             print("|cffcc66ffLockPrep|r loaded. Quick start:")
             print("  1) |cffffffff/lp bind SHIFT-E|r - one key you'll spam during arena prep")
             print("  2) |cffffffff/lp wand <your wand name>|r then |cffffffff/lp bindss SHIFT-R|r - spellstone dispel/swap")
-            print("  3) |cffffffff/lp test|r to preview the window, |cffffffff/lp unlock|r to move it")
+            print("  3) Left-click the |cffffffffminimap icon|r to open the checklist (right-click = options)")
             print("  In the arena: just mash your bound key - it does each step in order.")
         end
     elseif event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
         if InArena() then
             gateAt = nil
-            ui.userHidden = false -- auto-show fresh each match
             wipe(tradedNames)     -- fresh trade tracking each match
             announcedStones = false
-            ShowUI()
+            if AutoShowOn() then
+                ui.userHidden = false -- auto-show fresh each match
+                ShowUI()
+            end
         else
             if ui.preview then ShowUI() else HideUI() end
         end
@@ -936,6 +1000,14 @@ SlashCmdList["LOCKPREP"] = function(msg)
             BuildSteps(); Refresh()
             print("|cffcc66ffLockPrep|r: gate mount set to |cffffffff" .. rawArg .. "|r")
         end
+    elseif cmd == "minimap" or cmd == "icon" then
+        LockPrepDB = LockPrepDB or {}
+        LockPrepDB.minimap = LockPrepDB.minimap or {}
+        LockPrepDB.minimap.hide = not LockPrepDB.minimap.hide
+        if DBIcon then
+            if LockPrepDB.minimap.hide then DBIcon:Hide("LockPrep") else DBIcon:Show("LockPrep") end
+        end
+        print("|cffcc66ffLockPrep|r: minimap icon " .. (LockPrepDB.minimap.hide and "hidden" or "shown"))
     elseif cmd == "options" or cmd == "config" or cmd == "opt" then
         ToggleOptions()
     elseif cmd == "trade" then
@@ -951,8 +1023,9 @@ SlashCmdList["LOCKPREP"] = function(msg)
         print("  Press = dispel all harmful magic (off-GCD) + swap to wand. Press again later to re-arm the stone.")
     else
         print("|cffcc66ffLockPrep|r commands:")
-        print("  /lp show | hide | test  - show/hide the checklist (works in arena too)")
-        print("  /lp options  - choose which steps to include (or right-click the window)")
+        print("  /lp show | hide | test  - show/hide the checklist (or left-click the minimap icon)")
+        print("  /lp minimap  - show/hide the minimap icon")
+        print("  /lp options  - choose which steps to include (or right-click the window/icon)")
         print("  /lp trade  - arm one trade to auto-fill your healthstones (auto in arena)")
         print("  /lp announce  - say the 'open trade' battle-cry now")
         print("  /lp unlock | lock  - move / pin the window")
