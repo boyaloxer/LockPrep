@@ -24,6 +24,7 @@ local CFG = {
     cast = {
         hsMajor      = "/cast Create Healthstone(Rank 5)",   -- 11730 -> Major Healthstone
         hsMaster     = "/cast Create Healthstone(Rank 6)",   -- 27230 -> Master Healthstone
+        ritual       = "/cast Ritual of Souls",              -- 3s/5s: soulwell for the team
         spellstone      = "/cast Create Spellstone",          -- highest known = Master (Rank 4)
         equipSpellstone = "/equip Master Spellstone",         -- relic goes in the wand/ranged slot
         dispelSpellstone= "/use Master Spellstone",           -- IN-COMBAT: dispel all harmful magic (3 min CD)
@@ -77,6 +78,23 @@ local function Have(itemName) return (GetItemCount(itemName) or 0) > 0 end
 local DEFAULT_MOUNT = "Red Skeletal Warhorse"
 local function MountName() return (LockPrepDB and LockPrepDB.mount) or DEFAULT_MOUNT end
 
+-- Whether we're in "ritual" mode: driven purely by the checkboxes (set via a
+-- preset or by hand) - Ritual of Souls enabled and the manual pair disabled.
+local function UseRitual()
+    local d = LockPrepDB and LockPrepDB.disabled
+    local ritualOn = not (d and d.ritual)
+    local majorOn  = not (d and d.hsmajor)
+    local masterOn = not (d and d.hsmaster)
+    return ritualOn and not (majorOn or masterOn)
+end
+local ritualDone = false  -- set when Ritual of Souls is cast; reset each match
+local RITUAL_NAME = GetSpellInfo(29893) or "Ritual of Souls"  -- 29893 = Ritual of Souls
+
+-- generic "am I casting/channeling this spell right now" (by localized name)
+local function IsCasting(spellName)
+    return (UnitCastingInfo("player") == spellName) or (UnitChannelInfo("player") == spellName)
+end
+
 -- countdown ------------------------------------------------------------
 local gateAt
 local function TimeLeft()
@@ -123,8 +141,9 @@ end
 -- Step groups (each can be toggled off in the options panel)
 -- =====================================================================
 local GROUPS = {
-    { key = "hsmajor",      label = "Major Healthstone" },
-    { key = "hsmaster",     label = "Master Healthstone" },
+    { key = "hsmajor",      label = "Major Healthstone (2s)" },
+    { key = "hsmaster",     label = "Master Healthstone (2s)" },
+    { key = "ritual",       label = "Ritual of Souls (3s/5s)" },
     { key = "spellstone",   label = "Master Spellstone" },
     { key = "imp",          label = "Summon Imp" },
     { key = "felarmor",     label = "Fel Armor" },
@@ -158,13 +177,17 @@ local function BuildSteps()
         steps[#steps + 1] = t
     end
 
-    -- Healthstones (your pair). Trading to partners is manual; once you trade
-    -- them away, these become "not done" again and the button re-offers them,
-    -- so you loop: make pair -> trade -> make pair -> ... keep the last.
+    -- Healthstones. Which of these show is driven by the checkboxes (via presets):
+    --  * 2s preset:   Major + Master on, Ritual off  -> conjure your pair, trade them
+    --  * 3s/5s + BGs: Ritual on, pair off            -> one soulwell, team grabs stones
+    -- (2s loop: once you trade a stone away it goes back to "not done" and the
+    -- button re-offers it, so you make -> trade -> make ...).
     add({ id = "hs_major", group = "hsmajor", label = "Major Healthstone", macro = CFG.cast.hsMajor,
           done = function() return Have(CFG.item.hsMajor) end })
     add({ id = "hs_master", group = "hsmaster", label = "Master Healthstone", macro = CFG.cast.hsMaster,
           done = function() return Have(CFG.item.hsMaster) end })
+    add({ id = "ritual", group = "ritual", label = "Ritual of Souls (soulwell for the team)", macro = CFG.cast.ritual,
+          done = function() return ritualDone or Have(CFG.item.hsMaster) or Have(CFG.item.hsMajor) end })
 
     -- Spellstone: create it, then equip it in the wand/relic slot.
     -- (In TBC the spellstone is a wand-slot relic: passive +spell crit, plus an
@@ -213,9 +236,11 @@ local function BuildSteps()
     -- out it's time to swap. Sac/Soul Link buffs persist, so no need to wait for
     -- the countdown. (If you trade your stones away, the healthstone step jumps
     -- back ahead of this in the order, so the button re-offers a stone first.)
+    -- Ready once the voidwalker is out (arena sac flow); but if the voidwalker
+    -- step is turned off (e.g. the BGs preset), go straight imp -> felhunter.
     add({ id = "fh", group = "felhunter", label = "Summon Felhunter", macro = CFG.cast.summonFel,
           done = function() return PetRank() >= 3 end,
-          ready = function() return PetRank() >= 2 end })
+          ready = function() return PetRank() >= 2 or not Enabled("voidwalker") end })
     add({ id = "sac", group = "sacrifice", label = "Sacrifice VW (during Felhunter cast!)", macro = CFG.cast.sacrifice,
           done = function() return HasBuff("player", CFG.buff.sacrifice) or PetRank() >= 3 end,
           ready = function() return PetFamily() == "Voidwalker" end })
@@ -297,9 +322,14 @@ local function HaveAnyStone()
 end
 local function AnnounceStones()
     local partners = #Partners()
-    local msg = "Open trade if you want to live."
-    if partners > 0 then
-        msg = msg .. " (" .. TradedCount() .. "/" .. partners .. " traded)"
+    local msg
+    if UseRitual() then
+        msg = "Soulwell's up - grab a healthstone if you want to live."
+    else
+        msg = "Open trade if you want to live."
+        if partners > 0 then
+            msg = msg .. " (" .. TradedCount() .. "/" .. partners .. " traded)"
+        end
     end
     SendChatMessage(msg, "SAY")
 end
@@ -328,7 +358,12 @@ local function Refresh()
     local macro = step and step.macro or ""
     felCastFrac = FelSummonProgress()
     felAction = nil
-    if felCastFrac then
+    if IsCasting(RITUAL_NAME) then
+        -- Ritual of Souls in progress: cast nothing so a stray press can't
+        -- interrupt the channel (teammates need the soulwell to finish).
+        macro = ""
+        currentId = "ritual"
+    elseif felCastFrac then
         -- mid-felhunter-summon: offer the VW sac (if enabled, not yet done, and
         -- the voidwalker is still out), otherwise cast nothing so a stray press
         -- can't interrupt the summon.
@@ -346,11 +381,12 @@ local function Refresh()
     if not InCombatLockdown() then
         button:SetAttribute("macrotext", macro)
     end
-    -- battle-cry when a stone is ready (re-arms after they're traded away).
-    -- With partners it also skips once everyone's already stocked.
+    -- battle-cry: in 3s/5s once the soulwell is up; in 2s when a stone is ready
+    -- (re-arms after they're traded away, and skips once everyone's stocked).
     if AnnounceOn() and InArena() then
-        if HaveAnyStone() then
-            local needed = #Partners() == 0 or (#Partners() - TradedCount()) > 0
+        local ready = UseRitual() and ritualDone or (not UseRitual() and HaveAnyStone())
+        if ready then
+            local needed = UseRitual() or #Partners() == 0 or (#Partners() - TradedCount()) > 0
             if not announcedStones and needed then
                 announcedStones = true
                 AnnounceStones()
@@ -502,9 +538,11 @@ function LockPrep_UpdateUI()
         castFS:SetText("")
     end
 
-    -- trade progress (only meaningful with teammates)
+    -- trade progress (2s only; in 3s/5s people grab from the soulwell)
     local partners = #Partners()
-    if partners > 0 then
+    if UseRitual() then
+        tradeFS:SetText(ritualDone and "|cff55ff55Soulwell up - team grabs their own|r" or "")
+    elseif partners > 0 then
         local n = TradedCount()
         local col = (n >= partners) and "|cff55ff55" or "|cff88ccff"
         tradeFS:SetText(col .. "Healthstones traded: " .. n .. "/" .. partners .. "|r")
@@ -636,7 +674,7 @@ end)
 -- Options panel (checkboxes to include/exclude step groups)
 -- =====================================================================
 local opt = CreateFrame("Frame", "LockPrepOptions", UIParent, "BackdropTemplate")
-opt:SetSize(300, 60 + #GROUPS * 22 + 140)
+opt:SetSize(300, 60 + #GROUPS * 22 + 210)
 opt:SetPoint("CENTER")
 opt:SetBackdrop({
     bgFile   = "Interface\\Buttons\\WHITE8X8",
@@ -659,6 +697,7 @@ otitle:SetText("LockPrep - steps to include")
 local oclose = CreateFrame("Button", nil, opt, "UIPanelCloseButton")
 oclose:SetPoint("TOPRIGHT", 2, 2)
 
+local groupChecks = {}  -- key -> checkbox, so presets can refresh their state
 for i, g in ipairs(GROUPS) do
     local cb = CreateFrame("CheckButton", nil, opt, "UICheckButtonTemplate")
     cb:SetSize(22, 22)
@@ -671,8 +710,41 @@ for i, g in ipairs(GROUPS) do
         LockPrepDB = LockPrepDB or {}
         LockPrepDB.disabled = LockPrepDB.disabled or {}
         LockPrepDB.disabled[g.key] = (not self:GetChecked()) or nil
+        LockPrepDB.preset = "custom"  -- hand-edited => "Custom"
+        if LockPrepPresetDropDown then UIDropDownMenu_SetText(LockPrepPresetDropDown, "Custom") end
         BuildSteps(); Refresh()
     end)
+    groupChecks[g.key] = cb
+end
+
+-- Presets: one click sets a whole configuration of checkboxes.
+-- Major Healthstone + Master Spellstone are left OFF in every preset (personal
+-- preference); tick them yourself if you use them.
+local PRESETS = {
+    ["2s"]   = { label = "2s",     disabled = { hsmajor = true, spellstone = true, ritual = true } },
+    ["3s5s"] = { label = "3s / 5s", disabled = { hsmajor = true, hsmaster = true, spellstone = true } },
+    ["bg"]   = { label = "BGs",    disabled = { hsmajor = true, hsmaster = true, spellstone = true, taintedblood = true, voidwalker = true, sacrifice = true, shadowward = true } },
+    -- "custom" has no preset table: it leaves your checkboxes exactly as they are
+    -- so you can tick whatever you want. (Hand-editing any box also flips to this.)
+    ["custom"] = { label = "Custom", custom = true },
+}
+local PRESET_ORDER = { "2s", "3s5s", "bg", "custom" }
+
+local function RefreshGroupChecks()
+    for key, cb in pairs(groupChecks) do cb:SetChecked(Enabled(key)) end
+end
+
+local function ApplyPreset(key)
+    local p = PRESETS[key]; if not p then return end
+    LockPrepDB = LockPrepDB or {}
+    -- "custom" keeps the current checkbox states; other presets overwrite them.
+    if not p.custom then
+        LockPrepDB.disabled = {}
+        for grp, v in pairs(p.disabled) do LockPrepDB.disabled[grp] = v end
+    end
+    LockPrepDB.preset = key
+    RefreshGroupChecks()
+    BuildSteps(); Refresh()
 end
 
 -- extras section: auto-trade toggle
@@ -716,14 +788,43 @@ ascb:SetScript("OnClick", function(self)
     LockPrepDB.autoShow = self:GetChecked() and true or false
 end)
 
+-- Presets dropdown: pick 2s / 3s-5s / BGs and it checks/unchecks the right boxes
+local function PresetText()
+    local key = LockPrepDB and LockPrepDB.preset
+    local p = key and PRESETS[key]
+    return p and p.label or "Custom"
+end
+
+local pslbl = opt:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+pslbl:SetPoint("TOPLEFT", 16, extraY - 90)
+pslbl:SetText("Preset:")
+
+-- dropdown sits below its label (labels get cut off if placed beside it)
+local psdd = CreateFrame("Frame", "LockPrepPresetDropDown", opt, "UIDropDownMenuTemplate")
+psdd:SetPoint("TOPLEFT", 0, extraY - 108)
+UIDropDownMenu_SetWidth(psdd, 200)
+UIDropDownMenu_Initialize(psdd, function(self, level)
+    for _, key in ipairs(PRESET_ORDER) do
+        local info = UIDropDownMenu_CreateInfo()
+        info.text = PRESETS[key].label
+        info.checked = ((LockPrepDB and LockPrepDB.preset) == key)
+        info.func = function()
+            ApplyPreset(key)
+            UIDropDownMenu_SetText(psdd, PresetText())
+        end
+        UIDropDownMenu_AddButton(info, level)
+    end
+end)
+psdd:SetScript("OnShow", function() UIDropDownMenu_SetText(psdd, PresetText()) end)
+
 -- mount selector: pick from your learned mounts (or /lp mount <name>)
 local mlbl = opt:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-mlbl:SetPoint("TOPLEFT", 16, extraY - 90)
+mlbl:SetPoint("TOPLEFT", 16, extraY - 150)
 mlbl:SetText("Gate mount:")
 
 local mdd = CreateFrame("Frame", "LockPrepMountDropDown", opt, "UIDropDownMenuTemplate")
-mdd:SetPoint("TOPLEFT", 62, extraY - 84)
-UIDropDownMenu_SetWidth(mdd, 150)
+mdd:SetPoint("TOPLEFT", 0, extraY - 168)
+UIDropDownMenu_SetWidth(mdd, 200)
 
 local function SetMount(name)
     LockPrepDB = LockPrepDB or {}
@@ -732,18 +833,47 @@ local function SetMount(name)
     BuildSteps(); Refresh()
 end
 
-UIDropDownMenu_Initialize(mdd, function(self, level)
-    -- collect owned mounts (learned mounts live in the Companions list, not bags)
+-- collect owned mounts. In TBC (2.5.x) mounts are ITEMS in your bags, not
+-- entries in the WotLK+ companion journal, so scan the bags. We also fold in
+-- any learned companions in case this ever runs on a later client.
+local function OwnedMounts()
     local names, seen = {}, {}
+    local function addName(nm)
+        if nm and nm ~= "" and not seen[nm] then seen[nm] = true; names[#names + 1] = nm end
+    end
+    -- learned mounts (usually empty in TBC)
     local n = (GetNumCompanions and GetNumCompanions("MOUNT")) or 0
     for i = 1, n do
         local _, cname = GetCompanionInfo("MOUNT", i)
-        if cname and cname ~= "" and not seen[cname] then
-            seen[cname] = true
-            names[#names + 1] = cname
+        addName(cname)
+    end
+    -- mount items in bags (classID 15 = Miscellaneous, subclassID 5 = Mount)
+    for bag = 0, 4 do
+        local slots = (GetNumSlots and GetNumSlots(bag)) or 0
+        for slot = 1, slots do
+            local link = GetItemLink and GetItemLink(bag, slot)
+            if link then
+                local isMount = false
+                if GetItemInfoInstant then
+                    local _, _, _, _, _, classID, subclassID = GetItemInfoInstant(link)
+                    isMount = (classID == 15 and subclassID == 5)
+                end
+                if not isMount then
+                    local _, _, _, _, _, _, subclass = GetItemInfo(link)
+                    isMount = (subclass == "Mount")
+                end
+                if isMount then
+                    addName((GetItemInfo(link)) or link:match("%[(.-)%]"))
+                end
+            end
         end
     end
     table.sort(names)
+    return names
+end
+
+UIDropDownMenu_Initialize(mdd, function(self, level)
+    local names = OwnedMounts()
     for _, cname in ipairs(names) do
         local info = UIDropDownMenu_CreateInfo()
         info.text = cname
@@ -781,21 +911,21 @@ if LDB then
         icon = "Interface\\Icons\\INV_Stone_04", -- healthstone
         OnClick = function(_, mb)
             if mb == "RightButton" then
-                ToggleOptions()
-            else
                 ToggleWindow()
+            else
+                ToggleOptions()
             end
         end,
         OnTooltipShow = function(tt)
             tt:AddLine("LockPrep")
-            tt:AddLine("|cffffffffLeft-click|r  toggle the checklist", 1, 1, 1)
-            tt:AddLine("|cffffffffRight-click|r  options", 1, 1, 1)
+            tt:AddLine("|cffffffffLeft-click|r  options / presets", 1, 1, 1)
+            tt:AddLine("|cffffffffRight-click|r  toggle the checklist", 1, 1, 1)
         end,
     })
 end
 
--- Left-click toggles the window; respects the manual show/hide flags so it
--- behaves the same as /lp show|hide.
+-- Right-click the icon (and /lp show|hide|test) toggles the checklist window;
+-- respects the manual show/hide flags so it behaves the same as /lp show|hide.
 ToggleWindow = function()
     if ui:IsShown() then
         ui.userHidden = true; ui.preview = false; HideUI()
@@ -821,6 +951,7 @@ ev:RegisterEvent("CHAT_MSG_BG_SYSTEM_NEUTRAL")
 ev:RegisterEvent("CHAT_MSG_RAID_BOSS_EMOTE")
 ev:RegisterEvent("TRADE_SHOW")
 ev:RegisterEvent("TRADE_CLOSED")
+ev:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 
 -- Live updater: while Summon Felhunter is casting, refresh ~10x/sec so the
 -- progress % and the swap-to-sacrifice button stay current, plus one final
@@ -847,9 +978,13 @@ local function OnCountdownMessage(msg)
     elseif msg:find("has begun") or msg:find("gates are open") then gateAt = GetTime() end
 end
 
-ev:SetScript("OnEvent", function(self, event, arg1, arg2)
+ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
     if event == "PLAYER_LOGIN" then
         LockPrepDB = LockPrepDB or {}
+        if not LockPrepDB.disabled then
+            LockPrepDB.disabled = { hsmajor = true, spellstone = true, ritual = true } -- 2s preset
+            LockPrepDB.preset = "2s"
+        end
         ApplyPos()
         ui.locked = LockPrepDB.locked or false
         UpdateSpellstoneButton()
@@ -863,7 +998,7 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2)
             print("|cffcc66ffLockPrep|r loaded. Quick start:")
             print("  1) |cffffffff/lp bind SHIFT-E|r - one key you'll spam during arena prep")
             print("  2) |cffffffff/lp wand <your wand name>|r then |cffffffff/lp bindss SHIFT-R|r - spellstone dispel/swap")
-            print("  3) Left-click the |cffffffffminimap icon|r to open the checklist (right-click = options)")
+            print("  3) Left-click the |cffffffffminimap icon|r for options/presets (right-click = checklist)")
             print("  In the arena: just mash your bound key - it does each step in order.")
         end
     elseif event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
@@ -871,12 +1006,21 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2)
             gateAt = nil
             wipe(tradedNames)     -- fresh trade tracking each match
             announcedStones = false
+            ritualDone = false
+            BuildSteps()          -- fresh steps for this match
             if AutoShowOn() then
                 ui.userHidden = false -- auto-show fresh each match
                 ShowUI()
+            else
+                Refresh()         -- keep the button macro correct even if hidden
             end
         else
             if ui.preview then ShowUI() else HideUI() end
+        end
+    elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+        if arg1 == "player" and arg3 and GetSpellInfo(arg3) == RITUAL_NAME then
+            ritualDone = true
+            Refresh()
         end
     elseif event == "CHAT_MSG_BG_SYSTEM_NEUTRAL" or event == "CHAT_MSG_RAID_BOSS_EMOTE" then
         OnCountdownMessage(arg1)
@@ -899,7 +1043,8 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2)
             end
         end)
     elseif event == "GROUP_ROSTER_UPDATE" then
-        if ui:IsShown() then BuildSteps() end
+        -- roster affects partner buff steps; rebuild to keep them current
+        BuildSteps()
         Refresh()
     elseif event == "PLAYER_REGEN_ENABLED" then
         UpdateSpellstoneButton()
@@ -959,6 +1104,9 @@ SlashCmdList["LOCKPREP"] = function(msg)
         print("  next-step key: |cffffffff" .. key .. "|r   spellstone key: |cffffffff" .. sskey .. "|r   accept key: |cffffffff" .. ackey .. "|r")
         print("  next-step macro: |cffffffff" .. (button:GetAttribute("macrotext") or "(empty)") .. "|r")
         print("  wand: |cffffffff" .. (LockPrepDB and LockPrepDB.wand or "(not set)") .. "|r  in arena: " .. tostring(InArena()))
+        local sz = GetNumGroupMembers() or 0
+        local preset = (LockPrepDB and LockPrepDB.preset and PRESETS[LockPrepDB.preset] and PRESETS[LockPrepDB.preset].label) or "Custom"
+        print("  group size: |cffffffff" .. sz .. "|r  preset: |cffffffff" .. preset .. "|r  ->  stones: |cffffffff" .. (UseRitual() and "Ritual of Souls" or "conjure pair") .. "|r")
     elseif cmd == "bind" and arg ~= "" then
         local key = arg:upper()
         SetBindingClick(key, "LockPrepButton")
@@ -1000,6 +1148,15 @@ SlashCmdList["LOCKPREP"] = function(msg)
             BuildSteps(); Refresh()
             print("|cffcc66ffLockPrep|r: gate mount set to |cffffffff" .. rawArg .. "|r")
         end
+    elseif cmd == "preset" then
+        local key
+        if arg == "2s" then key = "2s"
+        elseif arg == "3s" or arg == "5s" or arg == "3s5s" or arg == "3s/5s" then key = "3s5s"
+        elseif arg == "bg" or arg == "bgs" then key = "bg"
+        elseif arg == "custom" then key = "custom"
+        else print("|cffcc66ffLockPrep|r: usage /lp preset 2s|3s5s|bg|custom"); return end
+        ApplyPreset(key)
+        print("|cffcc66ffLockPrep|r: preset = |cffffffff" .. PRESETS[key].label .. "|r")
     elseif cmd == "minimap" or cmd == "icon" then
         LockPrepDB = LockPrepDB or {}
         LockPrepDB.minimap = LockPrepDB.minimap or {}
@@ -1023,9 +1180,9 @@ SlashCmdList["LOCKPREP"] = function(msg)
         print("  Press = dispel all harmful magic (off-GCD) + swap to wand. Press again later to re-arm the stone.")
     else
         print("|cffcc66ffLockPrep|r commands:")
-        print("  /lp show | hide | test  - show/hide the checklist (or left-click the minimap icon)")
+        print("  /lp show | hide | test  - show/hide the checklist (or right-click the minimap icon)")
         print("  /lp minimap  - show/hide the minimap icon")
-        print("  /lp options  - choose which steps to include (or right-click the window/icon)")
+        print("  /lp options  - choose which steps to include (or left-click the icon)")
         print("  /lp trade  - arm one trade to auto-fill your healthstones (auto in arena)")
         print("  /lp announce  - say the 'open trade' battle-cry now")
         print("  /lp unlock | lock  - move / pin the window")
@@ -1034,6 +1191,7 @@ SlashCmdList["LOCKPREP"] = function(msg)
         print("  /lp bindaccept <KEY>  - bind a key to accept a trade (when stones are in)")
         print("  /lp wand <name>  - set your wand's exact name (for the spellstone swap)")
         print("  /lp mount <name>  - set the mount used for the gate sprint (or pick it in /lp options)")
+        print("  /lp preset 2s|3s5s|bg|custom  - apply a preset (custom keeps your boxes)")
         print("  /lp spellstone  - how the spellstone dispel/swap button works")
         print("  /lp status  - show your keybinds + what the next press will cast")
     end
