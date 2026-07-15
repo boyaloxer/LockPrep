@@ -9,10 +9,10 @@ local ADDON = ...
 --      your actual game state (bags, buffs, pet, weapon imbue). A failed
 --      step just stays "not done", so the next press retries it -- no
 --      castsequence desync.
---   2. A bracket-aware checklist overlay synced to the arena gate countdown
+--   2. A bracket-aware checklist overlay with a gate countdown display
 --      (parsed from the "One minute / Thirty seconds / ..." messages). It
---      highlights the current step and flashes the timing-critical ones
---      (felhunter, sacrifice, shadow ward, tainted blood, mount).
+--      highlights the current step. Steps are gated by state and order only --
+--      not the clock -- so nothing is blocked if the countdown mis-parses.
 --
 -- Everything castable is expressed as macro text so targeting (@player,
 -- @party1, ...) and specific spell ranks are exact. Tweak CFG if any name
@@ -49,11 +49,6 @@ local CFG = {
         fireShield = "Fire Shield", unending = "Unending Breath", detectInvis = "Detect Invisibility",
         sacrifice = "Sacrifice", soulLink = "Soul Link", shadowWard = "Shadow Ward", taintedBlood = "Tainted Blood",
     },
-
-    -- time gates (seconds remaining on the gate countdown)
-    -- seconds-left gates. taintedBlood >= mount so Tainted Blood is always
-    -- offered before you mount (can't cast anything while mounted).
-    t = { felhunter = 14, shadowWard = 4, mount = 3, taintedBlood = 4 },
 }
 
 -- =====================================================================
@@ -107,16 +102,6 @@ end
 local function InArena()
     local _, itype = IsInInstance()
     return itype == "arena"
-end
-
-local function timeReady(gate)
-    local t = TimeLeft()
-    if t == nil then
-        -- No live countdown: in an arena, wait for it; anywhere else (practice
-        -- in a duel, /lp test) allow the step so the button stays usable.
-        return not InArena()
-    end
-    return t <= gate
 end
 
 local function Partners()
@@ -249,19 +234,21 @@ local function BuildSteps()
     add({ id = "sl", group = "soullink", label = "Soul Link", macro = CFG.cast.soulLink,
           done = function() return HasBuff("player", CFG.buff.soulLink) end,
           ready = function() return PetFamily() == "Felhunter" end })
-    add({ id = "sw", group = "shadowward", label = "Shadow Ward", macro = CFG.cast.shadowWard, timed = true,
-          done = function() return HasBuff("player", CFG.buff.shadowWard) end,
-          ready = function() return timeReady(CFG.t.shadowWard) end })
+    -- These last steps are order-gated only (no countdown timing). The gate
+    -- countdown on the Anniversary client is unreliable to parse, and mistiming
+    -- these costs mana, so we just enforce order and let you press them when the
+    -- gate is about to open -- same as the rest of the routine.
+    add({ id = "sw", group = "shadowward", label = "Shadow Ward", macro = CFG.cast.shadowWard,
+          done = function() return HasBuff("player", CFG.buff.shadowWard) end })
     -- Tainted Blood MUST come before the mount: you can't use any ability
     -- (yours or the pet's) while mounted. Pet abilities don't share your GCD,
     -- so it's fine right alongside Shadow Ward.
-    add({ id = "tb", group = "taintedblood", label = "Tainted Blood", macro = CFG.cast.taintedBlood, timed = true,
+    add({ id = "tb", group = "taintedblood", label = "Tainted Blood", macro = CFG.cast.taintedBlood,
           done = function() return HasBuff("pet", CFG.buff.taintedBlood) end,
-          ready = function() return PetFamily() == "Felhunter" and timeReady(CFG.t.taintedBlood) end })
+          ready = function() return PetFamily() == "Felhunter" end })
     -- Mount is the very last thing (mounting locks out all abilities).
-    add({ id = "mount", group = "mount", label = "Mount up (" .. MountName() .. ")", macro = "/use " .. MountName(), timed = true,
-          done = function() return IsMounted() end,
-          ready = function() return timeReady(CFG.t.mount) end })
+    add({ id = "mount", group = "mount", label = "Mount up (" .. MountName() .. ")", macro = "/use " .. MountName(),
+          done = function() return IsMounted() end })
 end
 
 local function FirstIncomplete()
@@ -514,8 +501,6 @@ function LockPrep_UpdateUI()
             mark, r, g, b = "|cff55ff55v|r ", 0.5, 0.5, 0.5
         elseif s.id == currentId then
             mark, r, g, b = "|cffffff00> |r", 1, 1, 0.3
-        elseif s.timed and not ready then
-            mark, r, g, b = "|cff888888. |r", 0.5, 0.5, 0.55
         elseif not ready then
             mark, r, g, b = "|cff888888. |r", 0.55, 0.55, 0.6
         else

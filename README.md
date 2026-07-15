@@ -17,14 +17,17 @@ LockPrep has two parts:
 
 1. **A state-aware "next step" button.** Bind one key to it. Each press performs
    the **first step that isn't done yet**, decided by reading your actual game
-   state — bags, buffs, your pet, weapon/relic slot, group size, and the gate
-   countdown. If a step fails (out of range, interrupted, etc.) it simply stays
-   "not done," so your next press just retries it. No sequence to desync.
+   state — bags, buffs, your pet, weapon/relic slot, and group size. If a step
+   fails (out of range, interrupted, etc.) it simply stays "not done," so your
+   next press just retries it. No sequence to desync.
 
-2. **A bracket-aware checklist** synced to the arena gate countdown (parsed from
-   the "One minute / Thirty seconds / ..." messages). It shows what's done,
-   what's next, and flashes the timing-critical finishers (Felhunter, Sacrifice,
-   Shadow Ward, Tainted Blood, mount).
+2. **A bracket-aware checklist** with a gate countdown display (parsed from the
+   "One minute / Thirty seconds / ..." messages). It shows what's done and what's
+   next, and highlights the current step.
+
+Steps are gated by **state and order only**, not the clock — so nothing gets
+blocked if the gate countdown mis-parses. You decide when to fire the final
+Shadow Ward / Tainted Blood / mount, the same way you time everything else.
 
 The routine scales automatically with the bracket via **presets** (2s / 3s-5s /
 BGs / Custom).
