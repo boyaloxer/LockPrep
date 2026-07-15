@@ -117,3 +117,7 @@ The **mount dropdown** in options is populated from mount items in your bags.
   on your client or locale, edit the `CFG` table at the top of `LockPrep.lua`.
 - The checklist window is **off by default**; use the minimap icon or `/lp test`.
 - Settings and keybinds persist per-character in `LockPrepDB`.
+
+## License
+
+GPL-2.0. See the [LICENSE](LICENSE) file. Copyright (C) 2026 boyaloxer.
