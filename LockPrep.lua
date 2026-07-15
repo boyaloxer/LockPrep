@@ -683,7 +683,7 @@ end)
 -- Options panel (checkboxes to include/exclude step groups)
 -- =====================================================================
 local opt = CreateFrame("Frame", "LockPrepOptions", UIParent, "BackdropTemplate")
-opt:SetSize(300, 60 + #GROUPS * 22 + 210)
+opt:SetSize(300, 60 + #GROUPS * 22 + 270)
 opt:SetPoint("CENTER")
 opt:SetBackdrop({
     bgFile   = "Interface\\Buttons\\WHITE8X8",
@@ -899,6 +899,112 @@ UIDropDownMenu_Initialize(mdd, function(self, level)
 end)
 mdd:SetScript("OnShow", function() UIDropDownMenu_SetText(mdd, MountName()) end)
 
+-- keybind: laid out like the Preset / Gate mount controls (label, then a box)
+local kblbl = opt:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+kblbl:SetPoint("TOPLEFT", 16, extraY - 210)
+kblbl:SetText("Keybind:")
+
+local kbhint = opt:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+kbhint:SetPoint("LEFT", kblbl, "RIGHT", 6, 0)
+kbhint:SetText("click button, press key you want to use")
+
+local keyRows = {}
+
+local IGNORE_KEYS = {
+    LSHIFT = true, RSHIFT = true, LCTRL = true, RCTRL = true,
+    LALT = true, RALT = true, UNKNOWN = true,
+}
+local function KeyChord(key)
+    if not key or IGNORE_KEYS[key] then return nil end
+    local m = ""
+    if IsAltKeyDown()     then m = m .. "ALT-"   end
+    if IsControlKeyDown() then m = m .. "CTRL-"  end
+    if IsShiftKeyDown()   then m = m .. "SHIFT-" end
+    return m .. key
+end
+
+local function RefreshKeyButtons()
+    for _, row in ipairs(keyRows) do
+        if not row.listening then
+            local k = GetBindingKey(row.action)
+            row.btn:SetText(k or "|cff888888Not bound|r")
+        end
+    end
+end
+
+local function StopListening(row)
+    row.listening = false
+    row.btn:EnableKeyboard(false)
+    row.btn:EnableMouseWheel(false)
+    row.btn:SetPropagateKeyboardInput(true)
+    row.btn:SetButtonState("NORMAL")   -- release the stuck "pressed" look
+    row.btn:UnlockHighlight()
+    row.btn:SetScript("OnKeyDown", nil)
+    row.btn:SetScript("OnMouseWheel", nil)
+    row.btn:SetScript("OnMouseUp", nil)
+    RefreshKeyButtons()
+end
+
+local function ApplyKey(row, keyStr)
+    if not keyStr then return end
+    local old1, old2 = GetBindingKey(row.action)   -- clear this action's old key(s)
+    if old1 then SetBinding(old1) end
+    if old2 then SetBinding(old2) end
+    SetBindingClick(keyStr, row.button)
+    SaveBindings(GetCurrentBindingSet())
+    StopListening(row)
+    print("|cffcc66ffLockPrep|r: bound |cffffffff" .. keyStr .. "|r to " .. row.label)
+end
+
+local function StartListening(row)
+    for _, r in ipairs(keyRows) do
+        if r ~= row and r.listening then StopListening(r) end
+    end
+    row.listening = true
+    row.btn:SetText("|cffffff00Press a key...|r")
+    row.btn:EnableKeyboard(true)
+    row.btn:EnableMouseWheel(true)
+    row.btn:SetScript("OnKeyDown", function(self, key)
+        self:SetPropagateKeyboardInput(false)
+        if key == "ESCAPE" then StopListening(row); return end
+        local chord = KeyChord(key)
+        if chord then ApplyKey(row, chord) end
+    end)
+    row.btn:SetScript("OnMouseWheel", function(_, delta)
+        ApplyKey(row, (delta > 0) and "MOUSEWHEELUP" or "MOUSEWHEELDOWN")
+    end)
+    row.btn:SetScript("OnMouseUp", function(_, mbtn)
+        if mbtn == "LeftButton" then return end   -- left starts listening
+        local map = { RightButton = "BUTTON2", MiddleButton = "BUTTON3",
+                      Button4 = "BUTTON4", Button5 = "BUTTON5" }
+        local b = map[mbtn]
+        if b then ApplyKey(row, KeyChord(b)) end
+    end)
+end
+
+local function MakeKeyRow(labelText, buttonName, yoff)
+    local btn = CreateFrame("Button", nil, opt, "UIPanelButtonTemplate")
+    btn:SetSize(200, 24)
+    btn:SetPoint("TOPLEFT", 16, yoff)
+    local nt = btn:GetNormalTexture()
+    if nt then nt:SetVertexColor(0.85, 0.3, 0.3) end   -- red tint, keeps the button border/texture
+    local row = {
+        label  = labelText,
+        button = buttonName,
+        action = "CLICK " .. buttonName .. ":LeftButton",
+        btn    = btn,
+    }
+    btn:SetScript("OnClick", function()
+        if row.listening then StopListening(row) else StartListening(row) end
+    end)
+    keyRows[#keyRows + 1] = row
+    return row
+end
+
+MakeKeyRow("the next-step button", "LockPrepButton", extraY - 228)
+
+opt:HookScript("OnShow", RefreshKeyButtons)
+
 local function ToggleOptions()
     if opt:IsShown() then opt:Hide() else opt:Show() end
 end
@@ -1005,9 +1111,10 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
         end
         if not GetBindingKey("CLICK LockPrepButton:LeftButton") then
             print("|cffcc66ffLockPrep|r loaded. Quick start:")
-            print("  1) |cffffffff/lp bind SHIFT-E|r - one key you'll spam during arena prep")
-            print("  2) |cffffffff/lp wand <your wand name>|r then |cffffffff/lp bindss SHIFT-R|r - spellstone dispel/swap")
-            print("  3) Left-click the |cffffffffminimap icon|r for options/presets (right-click = checklist)")
+            print("  1) Left-click the |cffffffffminimap icon|r for options/presets, then set your keys in the |cffffffffKeybinds|r section")
+            print("     (or use |cffffffff/lp bind SHIFT-E|r for the next-step key)")
+            print("  2) |cffffffff/lp wand <your wand name>|r for the spellstone dispel/swap")
+            print("  3) Right-click the minimap icon (or |cffffffff/lp test|r) to peek at the checklist")
             print("  In the arena: just mash your bound key - it does each step in order.")
         end
     elseif event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
