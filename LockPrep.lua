@@ -12,7 +12,7 @@ local ADDON = ...
 --   2. A bracket-aware checklist overlay synced to the arena gate countdown
 --      (parsed from the "One minute / Thirty seconds / ..." messages). It
 --      highlights the current step and flashes the timing-critical ones
---      (felhunter, sacrifice, shadow ward, mount, tainted blood).
+--      (felhunter, sacrifice, shadow ward, tainted blood, mount).
 --
 -- Everything castable is expressed as macro text so targeting (@player,
 -- @party1, ...) and specific spell ranks are exact. Tweak CFG if any name
@@ -51,7 +51,9 @@ local CFG = {
     },
 
     -- time gates (seconds remaining on the gate countdown)
-    t = { felhunter = 14, shadowWard = 4, mount = 3, taintedBlood = 2 },
+    -- seconds-left gates. taintedBlood >= mount so Tainted Blood is always
+    -- offered before you mount (can't cast anything while mounted).
+    t = { felhunter = 14, shadowWard = 4, mount = 3, taintedBlood = 4 },
 }
 
 -- =====================================================================
@@ -155,8 +157,8 @@ local GROUPS = {
     { key = "sacrifice",    label = "Sacrifice" },
     { key = "soullink",     label = "Soul Link" },
     { key = "shadowward",   label = "Shadow Ward" },
-    { key = "mount",        label = "Mount" },
     { key = "taintedblood", label = "Tainted Blood" },
+    { key = "mount",        label = "Mount" },
 }
 
 local function Enabled(group)
@@ -250,12 +252,16 @@ local function BuildSteps()
     add({ id = "sw", group = "shadowward", label = "Shadow Ward", macro = CFG.cast.shadowWard, timed = true,
           done = function() return HasBuff("player", CFG.buff.shadowWard) end,
           ready = function() return timeReady(CFG.t.shadowWard) end })
-    add({ id = "mount", group = "mount", label = "Mount up (" .. MountName() .. ")", macro = "/use " .. MountName(), timed = true,
-          done = function() return IsMounted() end,
-          ready = function() return timeReady(CFG.t.mount) end })
+    -- Tainted Blood MUST come before the mount: you can't use any ability
+    -- (yours or the pet's) while mounted. Pet abilities don't share your GCD,
+    -- so it's fine right alongside Shadow Ward.
     add({ id = "tb", group = "taintedblood", label = "Tainted Blood", macro = CFG.cast.taintedBlood, timed = true,
           done = function() return HasBuff("pet", CFG.buff.taintedBlood) end,
           ready = function() return PetFamily() == "Felhunter" and timeReady(CFG.t.taintedBlood) end })
+    -- Mount is the very last thing (mounting locks out all abilities).
+    add({ id = "mount", group = "mount", label = "Mount up (" .. MountName() .. ")", macro = "/use " .. MountName(), timed = true,
+          done = function() return IsMounted() end,
+          ready = function() return timeReady(CFG.t.mount) end })
 end
 
 local function FirstIncomplete()
@@ -385,8 +391,16 @@ local function Refresh()
     -- (re-arms after they're traded away, and skips once everyone's stocked).
     if AnnounceOn() and InArena() then
         local ready = UseRitual() and ritualDone or (not UseRitual() and HaveAnyStone())
+        -- Only shout when a teammate is actually there to grab a stone. Without
+        -- this, a partner leaving mid-match drops the count to 0 and the old
+        -- "solo" clause would fire the message into an empty arena.
+        local needed
+        if UseRitual() then
+            needed = #Partners() > 0
+        else
+            needed = (#Partners() - TradedCount()) > 0
+        end
         if ready then
-            local needed = UseRitual() or #Partners() == 0 or (#Partners() - TradedCount()) > 0
             if not announcedStones and needed then
                 announcedStones = true
                 AnnounceStones()

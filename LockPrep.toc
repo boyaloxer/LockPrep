@@ -2,7 +2,7 @@
 ## Title: LockPrep
 ## Notes: Warlock arena prep helper - state-aware "next setup step" button + bracket-aware countdown checklist.
 ## Author: boyaloxer
-## Version: 0.12.6
+## Version: 0.12.9
 ## SavedVariables: LockPrepDB
 
 # Embedded libraries (minimap button)
