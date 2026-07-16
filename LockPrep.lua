@@ -153,11 +153,21 @@ local function Partners()
 end
 
 -- per-match healthstone trade tracking (declared early; used by the UI)
+-- We track by GUID (unique, realm-proof) so cross-realm skirmish partners are
+-- matched correctly; tradedNames stays for the announce count / display.
 local tradedNames = {}
+local tradedGUIDs = {}
+local tradeGUID                    -- GUID of the unit in the current trade window
 local function TradedCount()
     local n = 0
     for _ in pairs(tradedNames) do n = n + 1 end
     return n
+end
+local function HasTraded(unit)
+    local g = UnitGUID(unit)
+    if g and tradedGUIDs[g] then return true end
+    local name = UnitName(unit)
+    return name ~= nil and tradedNames[name] == true
 end
 -- total healthstones currently in bags (used to detect a completed trade)
 local function HSCount()
@@ -711,12 +721,37 @@ local function StonesInTrade()
     return n
 end
 
--- Fold accept into the SPAM key: PreClick runs on the same hardware press
--- (before the secure cast), so while a stone-trade is open your normal button
--- mashing accepts it. AcceptTrade() is legal from this hardware context.
+-- First partner (2s: party1) who still needs a stone. Skips anyone already
+-- traded this match and anyone not currently present.
+local function NextTradePartner()
+    for _, u in ipairs(Partners()) do
+        if UnitExists(u) and not HasTraded(u) then
+            return u, UnitName(u)
+        end
+    end
+end
+
+-- Fold trade handling into the SPAM key. PreClick runs on the same hardware
+-- press (before the secure cast), so mashing your normal button:
+--   * accepts an open stone-trade (AcceptTrade), and
+--   * opens a trade with the next partner who needs a stone (InitiateTrade).
+-- Both are legal from this hardware context; InitiateTrade(unit) does NOT change
+-- your target, so you keep pressing through the rest of prep uninterrupted.
+local lastInitiate = 0
 button:SetScript("PreClick", function()
-    if TradeFrame and TradeFrame:IsShown() and StonesInTrade() > 0 then
-        AcceptTrade()
+    -- 1) a trade is already open -> accept it if our stones are in
+    if TradeFrame and TradeFrame:IsShown() then
+        if StonesInTrade() > 0 then AcceptTrade() end
+        return
+    end
+    -- 2) 2s only: we hold a stone and a partner still needs one -> open the trade
+    if AutoTradeOn() and InArena() and not UseRitual() and HaveAnyStone()
+       and (GetTime() - lastInitiate) > 1.0 then
+        local u = NextTradePartner()
+        if u then
+            lastInitiate = GetTime()
+            InitiateTrade(u)
+        end
     end
 end)
 
@@ -1183,6 +1218,8 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
         if InArena() then
             gateAt = nil
             wipe(tradedNames)     -- fresh trade tracking each match
+            wipe(tradedGUIDs)
+            tradeGUID = nil
             petSummonedMax = 0    -- fresh creation-delay latches each match
             wipe(hsPending)
             announcedStones = false
@@ -1224,6 +1261,7 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
     elseif event == "TRADE_SHOW" then
         tradeHadStones = false
         tradeStartHS = HSCount()
+        tradeGUID = UnitGUID("npc")   -- the unit we're trading with (either direction)
         tradePartner = (TradeFrameRecipientNameText and TradeFrameRecipientNameText:GetText())
         if not tradePartner or tradePartner == "" then tradePartner = UnitName("npc") end
         if not tradePartner or tradePartner == "" then tradePartner = "partner" end
@@ -1231,11 +1269,12 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
     elseif event == "TRADE_CLOSED" then
         -- success is detected by our stones actually leaving the bags. Check
         -- after a short delay so the bag update has landed.
-        local partner, before = tradePartner, tradeStartHS
-        tradeHadStones = false; tradePartner = nil
+        local partner, guid, before = tradePartner, tradeGUID, tradeStartHS
+        tradeHadStones = false; tradePartner = nil; tradeGUID = nil
         C_Timer.After(0.4, function()
-            if partner and HSCount() < before then
-                tradedNames[partner] = true
+            if HSCount() < before then
+                if guid then tradedGUIDs[guid] = true end
+                if partner then tradedNames[partner] = true end
                 Refresh()
             end
         end)
