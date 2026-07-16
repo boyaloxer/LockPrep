@@ -731,6 +731,26 @@ local function StonesInTrade()
     return n
 end
 
+-- Is the person we're trading with actually one of our teammates? (Never
+-- auto-accept a stranger's trade - only stones we placed or a teammate's gift.)
+local function TradeFromTeammate()
+    local g = UnitGUID("npc")
+    if not g then return false end
+    for _, u in ipairs(Partners()) do
+        if UnitGUID(u) == g then return true end
+    end
+    return false
+end
+
+-- Has the other side actually put an item in yet? Stops us from accepting an
+-- empty window the instant a teammate opens it (before they drop the food in).
+local function TargetHasItems()
+    for i = 1, 7 do
+        if GetTradeTargetItemLink and GetTradeTargetItemLink(i) then return true end
+    end
+    return false
+end
+
 -- First partner (2s: party1) who still needs a stone. Skips anyone already
 -- traded this match and anyone not currently present.
 local function NextTradePartner()
@@ -764,7 +784,12 @@ button:SetScript("PreClick", function()
         -- stuck states. We just wait it out, then accept once when it clears.
         local acceptBtn = _G.TradeFrameTradeButton
         local canAccept = (not acceptBtn) or acceptBtn:IsEnabled()
-        if StonesInTrade() > 0 and not iAccepted and canAccept
+        -- Accept when EITHER our stones are in (the give flow) OR a teammate has
+        -- put something in for us (food/water back). Never a stranger, never an
+        -- empty window.
+        local shouldAccept = StonesInTrade() > 0
+                             or (TradeFromTeammate() and TargetHasItems())
+        if shouldAccept and not iAccepted and canAccept
            and (GetTime() - tradeFilledAt) > TRADE_SETTLE then
             iAccepted = true          -- optimistic; TRADE_ACCEPT_UPDATE corrects it
             AcceptTrade()
