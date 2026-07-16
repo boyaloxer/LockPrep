@@ -1303,7 +1303,12 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
         tradePartner = (TradeFrameRecipientNameText and TradeFrameRecipientNameText:GetText())
         if not tradePartner or tradePartner == "" then tradePartner = UnitName("npc") end
         if not tradePartner or tradePartner == "" then tradePartner = "partner" end
-        if tradeArmed or (AutoTradeOn() and InArena()) then FillTrade() end
+        -- Only auto-fill our stones if THIS partner still needs one. Otherwise a
+        -- teammate re-opening a trade to hand US something (a mage giving food)
+        -- would get another stone dumped in - and possibly accepted away.
+        local giveStone = AutoTradeOn() and InArena() and not UseRitual()
+                          and HaveAnyStone() and not HasTraded("npc")
+        if tradeArmed or giveStone then FillTrade() end
         Refresh()                     -- blank the prep cast while the window is up
     elseif event == "TRADE_CLOSED" then
         -- success is detected by our stones actually leaving the bags. Check
