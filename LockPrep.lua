@@ -757,7 +757,14 @@ button:SetScript("PreClick", function()
     -- kept in sync from TRADE_ACCEPT_UPDATE. (The prep cast is blanked in Refresh
     -- while the window is up, so a mash here only accepts.)
     if TradeFrame and TradeFrame:IsShown() then
-        if StonesInTrade() > 0 and not iAccepted
+        -- Only accept when Blizzard's Accept button is actually enabled. If the
+        -- other side adds/changes items (a mage handing back food/water), WoW
+        -- un-accepts both sides and locks the button for a few seconds (anti-scam
+        -- countdown); mashing AcceptTrade() through that is what caused the "-1" /
+        -- stuck states. We just wait it out, then accept once when it clears.
+        local acceptBtn = _G.TradeFrameTradeButton
+        local canAccept = (not acceptBtn) or acceptBtn:IsEnabled()
+        if StonesInTrade() > 0 and not iAccepted and canAccept
            and (GetTime() - tradeFilledAt) > TRADE_SETTLE then
             iAccepted = true          -- optimistic; TRADE_ACCEPT_UPDATE corrects it
             AcceptTrade()
