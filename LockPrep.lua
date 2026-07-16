@@ -447,6 +447,12 @@ local function Refresh()
     else
         currentId = step and step.id or nil
     end
+    -- While a trade window is open the button's ONLY job is to accept (handled in
+    -- PreClick). Blank the prep cast so mashing during the trade doesn't fire the
+    -- current step over and over.
+    if TradeFrame and TradeFrame:IsShown() then
+        macro = ""
+    end
     if not InCombatLockdown() then
         button:SetAttribute("macrotext", macro)
     end
@@ -738,12 +744,18 @@ end
 -- Both are legal from this hardware context; InitiateTrade(unit) does NOT change
 -- your target, so you keep pressing through the rest of prep uninterrupted.
 local lastInitiate = 0
+local lastAccept = 0             -- throttles AcceptTrade so mashing doesn't hammer it
 local lastTradeClosed = 0        -- set on TRADE_CLOSED; blocks an instant empty re-open
 local TRADE_REOPEN_CD = 1.5      -- > the 0.4s bag-drop confirm, with margin for bag lag
 button:SetScript("PreClick", function()
-    -- 1) a trade is already open -> accept it if our stones are in
+    -- 1) a trade is already open -> accept it if our stones are in (throttled;
+    -- the prep cast is blanked in Refresh while the window is up, so a mash here
+    -- only accepts and doesn't fire the next step).
     if TradeFrame and TradeFrame:IsShown() then
-        if StonesInTrade() > 0 then AcceptTrade() end
+        if StonesInTrade() > 0 and (GetTime() - lastAccept) > 0.5 then
+            lastAccept = GetTime()
+            AcceptTrade()
+        end
         return
     end
     -- 2) 2s only: we hold a stone and a partner still needs one -> open the trade.
@@ -1273,12 +1285,14 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
         if not tradePartner or tradePartner == "" then tradePartner = UnitName("npc") end
         if not tradePartner or tradePartner == "" then tradePartner = "partner" end
         if tradeArmed or (AutoTradeOn() and InArena()) then FillTrade() end
+        Refresh()                     -- blank the prep cast while the window is up
     elseif event == "TRADE_CLOSED" then
         -- success is detected by our stones actually leaving the bags. Check
         -- after a short delay so the bag update has landed.
         lastTradeClosed = GetTime()   -- start the re-open cooldown (see PreClick)
         local partner, guid, before = tradePartner, tradeGUID, tradeStartHS
         tradeHadStones = false; tradePartner = nil; tradeGUID = nil
+        Refresh()                     -- restore the prep cast now the window is gone
         C_Timer.After(0.4, function()
             if HSCount() < before then
                 if guid then tradedGUIDs[guid] = true end
