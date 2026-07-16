@@ -738,15 +738,22 @@ end
 -- Both are legal from this hardware context; InitiateTrade(unit) does NOT change
 -- your target, so you keep pressing through the rest of prep uninterrupted.
 local lastInitiate = 0
+local lastTradeClosed = 0        -- set on TRADE_CLOSED; blocks an instant empty re-open
+local TRADE_REOPEN_CD = 1.5      -- > the 0.4s bag-drop confirm, with margin for bag lag
 button:SetScript("PreClick", function()
     -- 1) a trade is already open -> accept it if our stones are in
     if TradeFrame and TradeFrame:IsShown() then
         if StonesInTrade() > 0 then AcceptTrade() end
         return
     end
-    -- 2) 2s only: we hold a stone and a partner still needs one -> open the trade
+    -- 2) 2s only: we hold a stone and a partner still needs one -> open the trade.
+    -- The close cooldown covers the gap right after a trade completes: the stone
+    -- has left the bags but HasTraded() isn't recorded until the bag-drop confirm
+    -- lands (~0.4s later), so without it a mash would re-open an empty trade with
+    -- the partner we just finished with.
     if AutoTradeOn() and InArena() and not UseRitual() and HaveAnyStone()
-       and (GetTime() - lastInitiate) > 1.0 then
+       and (GetTime() - lastInitiate) > 1.0
+       and (GetTime() - lastTradeClosed) > TRADE_REOPEN_CD then
         local u = NextTradePartner()
         if u then
             lastInitiate = GetTime()
@@ -1269,6 +1276,7 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
     elseif event == "TRADE_CLOSED" then
         -- success is detected by our stones actually leaving the bags. Check
         -- after a short delay so the bag update has landed.
+        lastTradeClosed = GetTime()   -- start the re-open cooldown (see PreClick)
         local partner, guid, before = tradePartner, tradeGUID, tradeStartHS
         tradeHadStones = false; tradePartner = nil; tradeGUID = nil
         C_Timer.After(0.4, function()
