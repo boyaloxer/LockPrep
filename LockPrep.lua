@@ -663,6 +663,7 @@ local tradeArmed = false      -- one-shot arm, for testing outside an arena
 local tradeHadStones = false  -- did we put stones in the current trade?
 local tradePartner = nil      -- who we're trading with (captured at TRADE_SHOW)
 local tradeStartHS = 0        -- healthstone count when the trade opened
+local iAccepted = false       -- is OUR side of the trade accepted? (from TRADE_ACCEPT_UPDATE)
 -- (tradedNames / TradedCount / HSCount are declared earlier, near Partners())
 
 -- container API works via C_Container (modern) or legacy globals
@@ -744,16 +745,17 @@ end
 -- Both are legal from this hardware context; InitiateTrade(unit) does NOT change
 -- your target, so you keep pressing through the rest of prep uninterrupted.
 local lastInitiate = 0
-local lastAccept = 0             -- throttles AcceptTrade so mashing doesn't hammer it
 local lastTradeClosed = 0        -- set on TRADE_CLOSED; blocks an instant empty re-open
 local TRADE_REOPEN_CD = 1.5      -- > the 0.4s bag-drop confirm, with margin for bag lag
 button:SetScript("PreClick", function()
-    -- 1) a trade is already open -> accept it if our stones are in (throttled;
-    -- the prep cast is blanked in Refresh while the window is up, so a mash here
-    -- only accepts and doesn't fire the next step).
+    -- 1) a trade is already open -> accept it if our stones are in. AcceptTrade()
+    -- TOGGLES, so calling it again while already accepted un-accepts you (green ->
+    -- gray flicker). Only accept when our side isn't accepted yet; iAccepted is
+    -- kept in sync from TRADE_ACCEPT_UPDATE. (The prep cast is blanked in Refresh
+    -- while the window is up, so a mash here only accepts.)
     if TradeFrame and TradeFrame:IsShown() then
-        if StonesInTrade() > 0 and (GetTime() - lastAccept) > 0.5 then
-            lastAccept = GetTime()
+        if StonesInTrade() > 0 and not iAccepted then
+            iAccepted = true          -- optimistic; TRADE_ACCEPT_UPDATE corrects it
             AcceptTrade()
         end
         return
@@ -1176,6 +1178,7 @@ ev:RegisterEvent("CHAT_MSG_BG_SYSTEM_NEUTRAL")
 ev:RegisterEvent("CHAT_MSG_RAID_BOSS_EMOTE")
 ev:RegisterEvent("TRADE_SHOW")
 ev:RegisterEvent("TRADE_CLOSED")
+ev:RegisterEvent("TRADE_ACCEPT_UPDATE")
 ev:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 -- Player-only cast start/stop so the button blanks the instant a summon/conjure
 -- begins (kills the spell-queue duplicate) and re-offers if the cast is cut.
@@ -1277,7 +1280,12 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
         end
     elseif event == "CHAT_MSG_BG_SYSTEM_NEUTRAL" or event == "CHAT_MSG_RAID_BOSS_EMOTE" then
         OnCountdownMessage(arg1)
+    elseif event == "TRADE_ACCEPT_UPDATE" then
+        -- arg1 = our side accepted (0/1); keep iAccepted in sync so PreClick only
+        -- calls AcceptTrade() once (a second call toggles it back off).
+        iAccepted = (arg1 == 1)
     elseif event == "TRADE_SHOW" then
+        iAccepted = false
         tradeHadStones = false
         tradeStartHS = HSCount()
         tradeGUID = UnitGUID("npc")   -- the unit we're trading with (either direction)
@@ -1290,6 +1298,7 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
         -- success is detected by our stones actually leaving the bags. Check
         -- after a short delay so the bag update has landed.
         lastTradeClosed = GetTime()   -- start the re-open cooldown (see PreClick)
+        iAccepted = false
         local partner, guid, before = tradePartner, tradeGUID, tradeStartHS
         tradeHadStones = false; tradePartner = nil; tradeGUID = nil
         Refresh()                     -- restore the prep cast now the window is gone
