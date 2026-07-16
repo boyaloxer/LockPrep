@@ -664,6 +664,8 @@ local tradeHadStones = false  -- did we put stones in the current trade?
 local tradePartner = nil      -- who we're trading with (captured at TRADE_SHOW)
 local tradeStartHS = 0        -- healthstone count when the trade opened
 local iAccepted = false       -- is OUR side of the trade accepted? (from TRADE_ACCEPT_UPDATE)
+local tradeFilledAt = 0       -- when we auto-filled; wait a beat before accepting
+local TRADE_SETTLE = 0.4      -- so the item-placement confirms land before we accept
 -- (tradedNames / TradedCount / HSCount are declared earlier, near Partners())
 
 -- container API works via C_Container (modern) or legacy globals
@@ -711,6 +713,7 @@ local function FillTrade()
     if PlaceInTrade(CFG.item.hsMaster, 2) then placed = placed + 1 end
     tradeHadStones = placed > 0
     if placed > 0 then
+        tradeFilledAt = GetTime()   -- let the placement confirms settle before we accept
         print("|cffcc66ffLockPrep|r: placed " .. placed .. " healthstone(s) - keep pressing your button to accept")
     else
         print("|cffcc66ffLockPrep|r: no healthstones in bags to trade (conjure a pair first)")
@@ -754,7 +757,8 @@ button:SetScript("PreClick", function()
     -- kept in sync from TRADE_ACCEPT_UPDATE. (The prep cast is blanked in Refresh
     -- while the window is up, so a mash here only accepts.)
     if TradeFrame and TradeFrame:IsShown() then
-        if StonesInTrade() > 0 and not iAccepted then
+        if StonesInTrade() > 0 and not iAccepted
+           and (GetTime() - tradeFilledAt) > TRADE_SETTLE then
             iAccepted = true          -- optimistic; TRADE_ACCEPT_UPDATE corrects it
             AcceptTrade()
         end
