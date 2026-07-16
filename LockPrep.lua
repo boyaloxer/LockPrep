@@ -133,7 +133,15 @@ local function IsCasting(spellName)
 end
 
 -- countdown ------------------------------------------------------------
+-- gateAt is the GetTime() at which the gates open. Two sources:
+--   * START_TIMER (Enum.StartTimerType.PvPBeginTimer) - the game's own arena
+--     begin timer, accurate and locale-proof. This is what marks the timer
+--     "reliable" and is the only source we trust for the finish time-gate.
+--   * the "one minute / thirty seconds / ..." chat emotes - best effort, used
+--     only to show a countdown; NOT trusted for gating (it can mis-fire and
+--     block the finish past the real gate).
 local gateAt
+local gateReliable = false
 local function TimeLeft()
     if not gateAt then return nil end
     local t = gateAt - GetTime()
@@ -142,11 +150,12 @@ end
 
 -- Soft time-gate for the time-sensitive finish (Felhunter + sac + Soul Link +
 -- Shadow Ward + Tainted Blood + mount). Holds them until <= END_PREP_SECS left
--- so mashing early doesn't blow the fresh-shield/short-duration stuff. If the
--- countdown never parsed (gateAt unknown) we allow it -- order-only, same as
--- before -- so a mis-parse can never lock you out of finishing prep.
+-- so mashing early doesn't blow the fresh-shield/short-duration stuff. Only
+-- engages when we have the reliable START_TIMER; otherwise it's order-only
+-- (same as before) so a missing/mis-parsed timer can never lock you out.
 local END_PREP_SECS = 12
 local function EndPrepReady()
+    if not gateReliable then return true end
     local t = TimeLeft()
     return t == nil or t <= END_PREP_SECS
 end
@@ -625,7 +634,7 @@ function LockPrep_UpdateUI()
         actionFS:SetText("Press |cff00ff00" .. key .. "|r: " .. curLabel)
     elseif anyIncomplete then
         local t = TimeLeft()
-        if t and t > END_PREP_SECS then
+        if gateReliable and t and t > END_PREP_SECS then
             actionFS:SetText(string.format("|cffaaaaaaHolding the finish until %ds left (%ds)|r",
                 END_PREP_SECS, math.floor(t + 0.5)))
         else
@@ -1238,6 +1247,7 @@ ev:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 ev:RegisterEvent("PLAYER_REGEN_ENABLED")
 ev:RegisterEvent("CHAT_MSG_BG_SYSTEM_NEUTRAL")
 ev:RegisterEvent("CHAT_MSG_RAID_BOSS_EMOTE")
+ev:RegisterEvent("START_TIMER")   -- reliable arena begin timer (Blizzard TimerTracker)
 ev:RegisterEvent("TRADE_SHOW")
 ev:RegisterEvent("TRADE_CLOSED")
 ev:RegisterEvent("TRADE_ACCEPT_UPDATE")
@@ -1301,6 +1311,7 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
     elseif event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
         if InArena() then
             gateAt = nil
+            gateReliable = false
             wipe(tradedNames)     -- fresh trade tracking each match
             wipe(tradedGUIDs)
             tradeGUID = nil
@@ -1339,6 +1350,15 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
                 elseif currentId == "hs_major" then hsPending.hs_major = true end
                 Refresh()
             end
+        end
+    elseif event == "START_TIMER" then
+        -- arg1 = timerType, arg2 = seconds left, arg3 = total. Only the arena
+        -- begin timer, and it's the trustworthy source for the finish gate.
+        local pvpBegin = Enum and Enum.StartTimerType and Enum.StartTimerType.PvPBeginTimer
+        if pvpBegin and arg1 == pvpBegin and arg2 then
+            gateAt = GetTime() + arg2
+            gateReliable = true
+            Refresh()
         end
     elseif event == "CHAT_MSG_BG_SYSTEM_NEUTRAL" or event == "CHAT_MSG_RAID_BOSS_EMOTE" then
         OnCountdownMessage(arg1)
