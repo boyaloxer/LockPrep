@@ -282,9 +282,13 @@ local function BuildSteps()
     add({ id = "sac", group = "sacrifice", label = "Sacrifice VW (during Felhunter cast!)", macro = CFG.cast.sacrifice,
           done = function() return HasBuff("player", CFG.buff.sacrifice) or PetRank() >= 3 end,
           ready = function() return PetFamily() == "Voidwalker" end })
+    -- Ready check tolerates the felhunter spawn gap (petSummonedMax>=3): right
+    -- after the summon lands the pet isn't UnitExists yet, and a live-only check
+    -- would let Shadow Ward jump ahead of Soul Link. A press before the pet is
+    -- up just no-ops (no demon = no GCD) and retries on the next mash.
     add({ id = "sl", group = "soullink", label = "Soul Link", macro = CFG.cast.soulLink,
           done = function() return HasBuff("player", CFG.buff.soulLink) end,
-          ready = function() return PetFamily() == "Felhunter" end })
+          ready = function() return PetFamily() == "Felhunter" or petSummonedMax >= 3 end })
     -- These last steps are order-gated only (no countdown timing). The gate
     -- countdown on the Anniversary client is unreliable to parse, and mistiming
     -- these costs mana, so we just enforce order and let you press them when the
@@ -296,7 +300,7 @@ local function BuildSteps()
     -- so it's fine right alongside Shadow Ward.
     add({ id = "tb", group = "taintedblood", label = "Tainted Blood", macro = CFG.cast.taintedBlood,
           done = function() return HasBuff("pet", CFG.buff.taintedBlood) end,
-          ready = function() return PetFamily() == "Felhunter" end })
+          ready = function() return PetFamily() == "Felhunter" or petSummonedMax >= 3 end })
     -- Mount is the very last thing (mounting locks out all abilities).
     add({ id = "mount", group = "mount", label = "Mount up (" .. MountName() .. ")", macro = "/use " .. MountName(),
           done = function() return IsMounted() end })
