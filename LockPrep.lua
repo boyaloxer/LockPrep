@@ -158,6 +158,7 @@ end
 local tradedNames = {}
 local tradedGUIDs = {}
 local tradeGUID                    -- GUID of the unit in the current trade window
+local iAccepted = false            -- is OUR side of the trade accepted? (from TRADE_ACCEPT_UPDATE)
 local function TradedCount()
     local n = 0
     for _ in pairs(tradedNames) do n = n + 1 end
@@ -447,10 +448,13 @@ local function Refresh()
     else
         currentId = step and step.id or nil
     end
-    -- While a trade window is open the button's ONLY job is to accept (handled in
-    -- PreClick). Blank the prep cast so mashing during the trade doesn't fire the
-    -- current step over and over.
-    if TradeFrame and TradeFrame:IsShown() then
+    -- While a trade window is open and we still owe an accept, the button's only
+    -- job is to accept (handled in PreClick), so blank the prep cast. But once
+    -- WE'VE accepted (our stone is in, waiting on them), un-blank so you can keep
+    -- prepping while they take their time -- casting doesn't cancel the trade, and
+    -- if they never accept you're not jammed. (If they change the trade our accept
+    -- resets, iAccepted flips false, and we blank again to re-accept.)
+    if TradeFrame and TradeFrame:IsShown() and not iAccepted then
         macro = ""
     end
     if not InCombatLockdown() then
@@ -663,7 +667,7 @@ local tradeArmed = false      -- one-shot arm, for testing outside an arena
 local tradeHadStones = false  -- did we put stones in the current trade?
 local tradePartner = nil      -- who we're trading with (captured at TRADE_SHOW)
 local tradeStartHS = 0        -- healthstone count when the trade opened
-local iAccepted = false       -- is OUR side of the trade accepted? (from TRADE_ACCEPT_UPDATE)
+-- (iAccepted is declared earlier, near the trade-tracking state, so Refresh can read it)
 local tradeFilledAt = 0       -- when we auto-filled; wait a beat before accepting
 local TRADE_SETTLE = 0.4      -- so the item-placement confirms land before we accept
 -- (tradedNames / TradedCount / HSCount are declared earlier, near Partners())
@@ -1320,6 +1324,7 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
         -- arg1 = our side accepted (0/1); keep iAccepted in sync so PreClick only
         -- calls AcceptTrade() once (a second call toggles it back off).
         iAccepted = (arg1 == 1)
+        Refresh()   -- un-blank prep once accepted / re-blank if our accept reset
     elseif event == "TRADE_SHOW" then
         iAccepted = false
         tradeHadStones = false
