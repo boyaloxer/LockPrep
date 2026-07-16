@@ -81,6 +81,36 @@ local function HasPet() return UnitExists("pet") end
 
 local function Have(itemName) return (GetItemCount(itemName) or 0) > 0 end
 
+-- Creation-delay guard (summons + healthstones only) ------------------
+-- A summon/conjure can double-fire in two ways when you mash the key:
+--   1. Spell-queue window: a spell with a cast time queues a SECOND identical
+--      cast if you press again during its last ~0.4s. Nothing you check in
+--      done() can undo an already-queued cast.
+--   2. Spawn gap: for a beat AFTER the cast lands the pet isn't UnitExists yet
+--      / the stone hasn't dropped into the bag yet, so done() reads false and
+--      the next press recasts.
+-- We close BOTH, scoped to just these steps:
+--   * (1) while you're mid-cast on the step's own spell, Refresh blanks the
+--         button so a mashed press can't queue a duplicate;
+--   * (2) on cast SUCCESS we mark the step done until the real thing is
+--         observed. Pets use a monotonic "highest rank summoned this match" so
+--         summoning a higher pet (which dismisses the lower one) never re-opens
+--         an earlier summon step. Healthstones use a per-tier pending flag that
+--         clears the instant the stone lands; trade it away and the step
+--         re-offers on its own (stone's gone, pending already cleared).
+-- No timers involved: latches clear on the confirming event, not a stopwatch.
+local CREATE_HS_NAME = GetSpellInfo(6201) or "Create Healthstone" -- shared by all HS ranks
+local SUMMON_NAME = {
+    [1] = GetSpellInfo(688) or "Summon Imp",
+    [2] = GetSpellInfo(697) or "Summon Voidwalker",
+    [3] = GetSpellInfo(691) or "Summon Felhunter",
+}
+local petSummonedMax = 0   -- highest pet rank summoned this match (monotonic)
+local hsPending = {}       -- "hs_major"/"hs_master" -> true until the stone lands
+
+local function PetStepDone(rank) return PetRank() >= rank or petSummonedMax >= rank end
+local function HSStepDone(id, item) return Have(item) or hsPending[id] == true end
+
 -- mount for the gate sprint (configurable so the addon is shareable)
 local DEFAULT_MOUNT = "Red Skeletal Warhorse"
 local function MountName() return (LockPrepDB and LockPrepDB.mount) or DEFAULT_MOUNT end
@@ -180,9 +210,11 @@ local function BuildSteps()
     -- (2s loop: once you trade a stone away it goes back to "not done" and the
     -- button re-offers it, so you make -> trade -> make ...).
     add({ id = "hs_major", group = "hsmajor", label = "Major Healthstone", macro = CFG.cast.hsMajor,
-          done = function() return Have(CFG.item.hsMajor) end })
+          castName = CREATE_HS_NAME,
+          done = function() return HSStepDone("hs_major", CFG.item.hsMajor) end })
     add({ id = "hs_master", group = "hsmaster", label = "Master Healthstone", macro = CFG.cast.hsMaster,
-          done = function() return Have(CFG.item.hsMaster) end })
+          castName = CREATE_HS_NAME,
+          done = function() return HSStepDone("hs_master", CFG.item.hsMaster) end })
     add({ id = "ritual", group = "ritual", label = "Ritual of Souls (soulwell for the team)", macro = CFG.cast.ritual,
           done = function() return ritualDone or Have(CFG.item.hsMaster) or Have(CFG.item.hsMajor) end })
 
@@ -198,7 +230,8 @@ local function BuildSteps()
 
     -- Imp (needed for Fire Shield)
     add({ id = "imp", group = "imp", label = "Summon Imp", macro = CFG.cast.summonImp,
-          done = function() return PetRank() >= 1 end })
+          castName = SUMMON_NAME[1],
+          done = function() return PetStepDone(1) end })
 
     -- Self buffs (Fel Armor first - it's your baseline armor buff)
     add({ id = "fa_self", group = "felarmor", label = "Fel Armor (you)", macro = CFG.cast.felArmor,
@@ -226,7 +259,8 @@ local function BuildSteps()
 
     -- Voidwalker (for Sacrifice shield)
     add({ id = "vw", group = "voidwalker", label = "Summon Voidwalker", macro = CFG.cast.summonVoid,
-          done = function() return PetRank() >= 2 end })
+          castName = SUMMON_NAME[2],
+          done = function() return PetStepDone(2) end })
 
     -- Timed finish -----------------------------------------------------
     -- Felhunter + sac gate on STATE, not the clock: as soon as the voidwalker is
@@ -235,8 +269,10 @@ local function BuildSteps()
     -- back ahead of this in the order, so the button re-offers a stone first.)
     -- Ready once the voidwalker is out (arena sac flow); but if the voidwalker
     -- step is turned off (e.g. the BGs preset), go straight imp -> felhunter.
+    -- No castName here: the Felhunter cast has its own handling in Refresh
+    -- (felCastFrac) which offers the Voidwalker sac mid-cast.
     add({ id = "fh", group = "felhunter", label = "Summon Felhunter", macro = CFG.cast.summonFel,
-          done = function() return PetRank() >= 3 end,
+          done = function() return PetStepDone(3) end,
           ready = function() return PetRank() >= 2 or not Enabled("voidwalker") end })
     add({ id = "sac", group = "sacrifice", label = "Sacrifice VW (during Felhunter cast!)", macro = CFG.cast.sacrifice,
           done = function() return HasBuff("player", CFG.buff.sacrifice) or PetRank() >= 3 end,
@@ -357,6 +393,11 @@ end
 
 local function Refresh()
     if #steps == 0 then BuildSteps() end
+    -- Drop a healthstone pending-latch the instant the real stone lands, so the
+    -- 2s make -> trade -> make loop re-offers with no delay. (Pet ranks are
+    -- monotonic for the match and reset on a new arena.)
+    if hsPending.hs_major and Have(CFG.item.hsMajor) then hsPending.hs_major = nil end
+    if hsPending.hs_master and Have(CFG.item.hsMaster) then hsPending.hs_master = nil end
     local step = FirstIncomplete()
     local macro = step and step.macro or ""
     felCastFrac = FelSummonProgress()
@@ -378,6 +419,12 @@ local function Refresh()
             macro = ""
             currentId = nil
         end
+    elseif step and step.castName and IsCasting(step.castName) then
+        -- Mid-cast on this step's OWN spell (summon / conjure): cast nothing so a
+        -- mashed press can't queue a duplicate in the spell-queue window. Keep
+        -- currentId pointed at the step so cast-SUCCESS latches the right tier.
+        macro = ""
+        currentId = step.id
     else
         currentId = step and step.id or nil
     end
@@ -1067,6 +1114,12 @@ ev:RegisterEvent("CHAT_MSG_RAID_BOSS_EMOTE")
 ev:RegisterEvent("TRADE_SHOW")
 ev:RegisterEvent("TRADE_CLOSED")
 ev:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+-- Player-only cast start/stop so the button blanks the instant a summon/conjure
+-- begins (kills the spell-queue duplicate) and re-offers if the cast is cut.
+ev:RegisterUnitEvent("UNIT_SPELLCAST_START", "player")
+ev:RegisterUnitEvent("UNIT_SPELLCAST_STOP", "player")
+ev:RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTED", "player")
+ev:RegisterUnitEvent("UNIT_SPELLCAST_FAILED", "player")
 
 -- Live updater: while Summon Felhunter is casting, refresh ~10x/sec so the
 -- progress % and the swap-to-sacrifice button stay current, plus one final
@@ -1121,6 +1174,8 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
         if InArena() then
             gateAt = nil
             wipe(tradedNames)     -- fresh trade tracking each match
+            petSummonedMax = 0    -- fresh creation-delay latches each match
+            wipe(hsPending)
             announcedStones = false
             ritualDone = false
             BuildSteps()          -- fresh steps for this match
@@ -1134,9 +1189,26 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
             if ui.preview then ShowUI() else HideUI() end
         end
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
-        if arg1 == "player" and arg3 and GetSpellInfo(arg3) == RITUAL_NAME then
-            ritualDone = true
-            Refresh()
+        if arg1 == "player" and arg3 then
+            local name = GetSpellInfo(arg3)
+            if name == RITUAL_NAME then
+                ritualDone = true
+                Refresh()
+            elseif name == SUMMON_NAME[1] then
+                if petSummonedMax < 1 then petSummonedMax = 1 end
+                Refresh()
+            elseif name == SUMMON_NAME[2] then
+                if petSummonedMax < 2 then petSummonedMax = 2 end
+                Refresh()
+            elseif name == SUMMON_NAME[3] then
+                if petSummonedMax < 3 then petSummonedMax = 3 end
+                Refresh()
+            elseif name == CREATE_HS_NAME then
+                -- ranks share one name; latch whichever tier we're on right now
+                if currentId == "hs_master" then hsPending.hs_master = true
+                elseif currentId == "hs_major" then hsPending.hs_major = true end
+                Refresh()
+            end
         end
     elseif event == "CHAT_MSG_BG_SYSTEM_NEUTRAL" or event == "CHAT_MSG_RAID_BOSS_EMOTE" then
         OnCountdownMessage(arg1)
