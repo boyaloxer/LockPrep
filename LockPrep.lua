@@ -139,6 +139,17 @@ local function TimeLeft()
     local t = gateAt - GetTime()
     return (t < 0) and 0 or t
 end
+
+-- Soft time-gate for the time-sensitive finish (Felhunter + sac + Soul Link +
+-- Shadow Ward + Tainted Blood + mount). Holds them until <= END_PREP_SECS left
+-- so mashing early doesn't blow the fresh-shield/short-duration stuff. If the
+-- countdown never parsed (gateAt unknown) we allow it -- order-only, same as
+-- before -- so a mis-parse can never lock you out of finishing prep.
+local END_PREP_SECS = 12
+local function EndPrepReady()
+    local t = TimeLeft()
+    return t == nil or t <= END_PREP_SECS
+end
 local function InArena()
     local _, itype = IsInInstance()
     return itype == "arena"
@@ -289,32 +300,37 @@ local function BuildSteps()
     -- (felCastFrac) which offers the Voidwalker sac mid-cast.
     add({ id = "fh", group = "felhunter", label = "Summon Felhunter", macro = CFG.cast.summonFel,
           done = function() return PetStepDone(3) end,
-          ready = function() return PetRank() >= 2 or petSummonedMax >= 2 or not Enabled("voidwalker") end })
+          ready = function() return EndPrepReady()
+                    and (PetRank() >= 2 or petSummonedMax >= 2 or not Enabled("voidwalker")) end })
     add({ id = "sac", group = "sacrifice", label = "Sacrifice VW (during Felhunter cast!)", macro = CFG.cast.sacrifice,
           done = function() return HasBuff("player", CFG.buff.sacrifice) or PetRank() >= 3 end,
-          ready = function() return PetFamily() == "Voidwalker" end })
+          ready = function() return EndPrepReady() and PetFamily() == "Voidwalker" end })
     -- Ready check tolerates the felhunter spawn gap (petSummonedMax>=3): right
     -- after the summon lands the pet isn't UnitExists yet, and a live-only check
     -- would let Shadow Ward jump ahead of Soul Link. A press before the pet is
     -- up just no-ops (no demon = no GCD) and retries on the next mash.
     add({ id = "sl", group = "soullink", label = "Soul Link", macro = CFG.cast.soulLink,
           done = function() return HasBuff("player", CFG.buff.soulLink) end,
-          ready = function() return PetFamily() == "Felhunter" or petSummonedMax >= 3 end })
+          ready = function() return EndPrepReady()
+                    and (PetFamily() == "Felhunter" or petSummonedMax >= 3) end })
     -- These last steps are order-gated only (no countdown timing). The gate
     -- countdown on the Anniversary client is unreliable to parse, and mistiming
     -- these costs mana, so we just enforce order and let you press them when the
     -- gate is about to open -- same as the rest of the routine.
     add({ id = "sw", group = "shadowward", label = "Shadow Ward", macro = CFG.cast.shadowWard,
-          done = function() return HasBuff("player", CFG.buff.shadowWard) end })
+          done = function() return HasBuff("player", CFG.buff.shadowWard) end,
+          ready = EndPrepReady })
     -- Tainted Blood MUST come before the mount: you can't use any ability
     -- (yours or the pet's) while mounted. Pet abilities don't share your GCD,
     -- so it's fine right alongside Shadow Ward.
     add({ id = "tb", group = "taintedblood", label = "Tainted Blood", macro = CFG.cast.taintedBlood,
           done = function() return HasBuff("pet", CFG.buff.taintedBlood) end,
-          ready = function() return PetFamily() == "Felhunter" or petSummonedMax >= 3 end })
+          ready = function() return EndPrepReady()
+                    and (PetFamily() == "Felhunter" or petSummonedMax >= 3) end })
     -- Mount is the very last thing (mounting locks out all abilities).
     add({ id = "mount", group = "mount", label = "Mount up (" .. MountName() .. ")", macro = "/use " .. MountName(),
-          done = function() return IsMounted() end })
+          done = function() return IsMounted() end,
+          ready = EndPrepReady })
 end
 
 local function FirstIncomplete()
@@ -608,7 +624,13 @@ function LockPrep_UpdateUI()
     elseif curLabel then
         actionFS:SetText("Press |cff00ff00" .. key .. "|r: " .. curLabel)
     elseif anyIncomplete then
-        actionFS:SetText("|cffaaaaaaWaiting for the countdown...|r")
+        local t = TimeLeft()
+        if t and t > END_PREP_SECS then
+            actionFS:SetText(string.format("|cffaaaaaaHolding the finish until %ds left (%ds)|r",
+                END_PREP_SECS, math.floor(t + 0.5)))
+        else
+            actionFS:SetText("|cffaaaaaaWaiting for the countdown...|r")
+        end
     else
         actionFS:SetText("|cff55ff55All set - good luck!|r")
     end
