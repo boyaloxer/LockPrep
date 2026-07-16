@@ -269,11 +269,16 @@ local function BuildSteps()
     -- back ahead of this in the order, so the button re-offers a stone first.)
     -- Ready once the voidwalker is out (arena sac flow); but if the voidwalker
     -- step is turned off (e.g. the BGs preset), go straight imp -> felhunter.
+    -- We use petSummonedMax (not just the live PetRank) so the step stays ready
+    -- through the no-pet gap: when you sacrifice the VW mid-summon the pet is
+    -- gone for a beat, and a live-only check would drop Felhunter's readiness and
+    -- skip ahead to Shadow Ward. Once you've had a VW this match, Felhunter is
+    -- always reachable (and re-offered if the summon gets cut after the sac).
     -- No castName here: the Felhunter cast has its own handling in Refresh
     -- (felCastFrac) which offers the Voidwalker sac mid-cast.
     add({ id = "fh", group = "felhunter", label = "Summon Felhunter", macro = CFG.cast.summonFel,
           done = function() return PetStepDone(3) end,
-          ready = function() return PetRank() >= 2 or not Enabled("voidwalker") end })
+          ready = function() return PetRank() >= 2 or petSummonedMax >= 2 or not Enabled("voidwalker") end })
     add({ id = "sac", group = "sacrifice", label = "Sacrifice VW (during Felhunter cast!)", macro = CFG.cast.sacrifice,
           done = function() return HasBuff("player", CFG.buff.sacrifice) or PetRank() >= 3 end,
           ready = function() return PetFamily() == "Voidwalker" end })
