@@ -172,6 +172,25 @@ local function Partners()
     return out
 end
 
+local function IsWarlock(unit)
+    -- class comes from the group roster, so it's known even out of range /
+    -- before the partner has zoned in
+    local _, class = UnitClass(unit)
+    return class == "WARLOCK"
+end
+
+-- Partners who actually need a healthstone FROM US. Warlocks conjure their own
+-- (and never accept a traded one), so pestering them with the trade window just
+-- jams the series. This is trade-only: buffs and Ritual of Souls still cover
+-- warlock partners like everyone else.
+local function StonePartners()
+    local out = {}
+    for _, u in ipairs(Partners()) do
+        if not IsWarlock(u) then out[#out + 1] = u end
+    end
+    return out
+end
+
 -- per-match healthstone trade tracking (declared early; used by the UI)
 -- We track by GUID (unique, realm-proof) so cross-realm skirmish partners are
 -- matched correctly; tradedNames stays for the announce count / display.
@@ -405,11 +424,12 @@ local function HaveAnyStone()
     return Have(CFG.item.hsMajor) or Have(CFG.item.hsMaster)
 end
 local function AnnounceStones()
-    local partners = #Partners()
     local msg
     if UseRitual() then
         msg = "Soulwell's up - grab a healthstone if you want to live."
     else
+        -- trade mode: count only warlock-free partners (warlocks self-supply)
+        local partners = #StonePartners()
         msg = "Open trade if you want to live."
         if partners > 0 then
             msg = msg .. " (" .. TradedCount() .. "/" .. partners .. " traded)"
@@ -496,7 +516,8 @@ local function Refresh()
         if UseRitual() then
             needed = #Partners() > 0
         else
-            needed = (#Partners() - TradedCount()) > 0
+            -- trade mode: only warlock-free partners need a stone from us
+            needed = (#StonePartners() - TradedCount()) > 0
         end
         if ready then
             if not announcedStones and needed then
@@ -655,7 +676,8 @@ function LockPrep_UpdateUI()
     end
 
     -- trade progress (2s only; in 3s/5s people grab from the soulwell)
-    local partners = #Partners()
+    -- count only warlock-free partners - a warlock partner never needs a stone
+    local partners = #StonePartners()
     if UseRitual() then
         tradeFS:SetText(ritualDone and "|cff55ff55Soulwell up - team grabs their own|r" or "")
     elseif partners > 0 then
@@ -789,7 +811,9 @@ end
 -- First partner (2s: party1) who still needs a stone. Skips anyone already
 -- traded this match and anyone not currently present.
 local function NextTradePartner()
-    for _, u in ipairs(Partners()) do
+    -- StonePartners() excludes warlocks (they make their own), so we never open
+    -- a trade window with a partner who'll never accept it.
+    for _, u in ipairs(StonePartners()) do
         if UnitExists(u) and not HasTraded(u) then
             return u, UnitName(u)
         end
