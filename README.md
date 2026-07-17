@@ -130,10 +130,11 @@ The **mount dropdown** in options is populated from mount items in your bags.
 
 ### 0.15.0
 
-- **New:** Auto-trade healthstones from your prep key in 2s. When a partner opens
-  a trade, your stones are placed for you and accepted on your next key press, so
-  you can keep mashing through the rest of prep. Announces "open trade" once your
-  stones are ready.
+- **New:** LockPrep now opens the trade for you (2s). Press your prep key and it
+  opens a trade with the next partner who still needs a healthstone — previously
+  the window had to be opened manually (by you or them). Your stones are still
+  auto-filled and accepted on your next press, so you can keep mashing through
+  prep.
 - **New:** Auto-accepts a teammate's gift trade (e.g. a mage handing back
   food/water) on your key press.
 - **New:** Warlock partners are no longer offered healthstone trades (they make
@@ -145,8 +146,9 @@ The **mount dropdown** in options is populated from mount items in your bags.
   healthstone conjure.
 - **Fixed:** Felhunter / Soul Link / Tainted Blood stay in the right order
   through the pet spawn gap.
-- **Fixed:** Trade accept no longer flickers green/gray, and it respects
-  Blizzard's anti-scam accept lockout instead of getting stuck.
+- **Fixed:** Trade accept no longer flickers green/gray, respects Blizzard's
+  anti-scam accept lockout, and no longer re-opens an empty window right after a
+  completed trade.
 
 ### 0.14.0
 
