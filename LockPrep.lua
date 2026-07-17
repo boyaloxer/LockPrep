@@ -133,15 +133,15 @@ local function IsCasting(spellName)
 end
 
 -- countdown ------------------------------------------------------------
--- gateAt is the GetTime() at which the gates open. Two sources:
---   * START_TIMER (Enum.StartTimerType.PvPBeginTimer) - the game's own arena
---     begin timer, accurate and locale-proof. This is what marks the timer
---     "reliable" and is the only source we trust for the finish time-gate.
---   * the "one minute / thirty seconds / ..." chat emotes - best effort, used
---     only to show a countdown; NOT trusted for gating (it can mis-fire and
---     block the finish past the real gate).
+-- gateAt is the GetTime() at which the gates open. Sources, either works:
+--   * the "one minute / thirty seconds / fifteen seconds" arena emotes - this
+--     is the timer that actually fires on this client and drove the original
+--     (working) countdown. Once set, TimeLeft() counts down on its own via
+--     GetTime(), so a single message is enough.
+--   * START_TIMER - the game's own begin timer; used when it fires, but on the
+--     Anniversary client it doesn't reliably show up, so we don't depend on it.
+-- Whichever sets gateAt first wins; later messages just refine it.
 local gateAt
-local gateReliable = false
 local function TimeLeft()
     if not gateAt then return nil end
     local t = gateAt - GetTime()
@@ -150,14 +150,14 @@ end
 
 -- Soft time-gate for the time-sensitive finish (Felhunter + sac + Soul Link +
 -- Shadow Ward + Tainted Blood + mount). Holds them until <= END_PREP_SECS left
--- so mashing early doesn't blow the fresh-shield/short-duration stuff. Only
--- engages when we have the reliable START_TIMER; otherwise it's order-only
--- (same as before) so a missing/mis-parsed timer can never lock you out.
+-- so mashing early doesn't blow the fresh-shield/short-duration stuff. If no
+-- countdown has been detected yet (gateAt nil) we allow it - never lock the user
+-- out over a missing timer; order still applies via each step's own checks.
 local END_PREP_SECS = 12
 local function EndPrepReady()
-    if not gateReliable then return true end
     local t = TimeLeft()
-    return t == nil or t <= END_PREP_SECS
+    if t == nil then return true end
+    return t <= END_PREP_SECS
 end
 local function InArena()
     local _, itype = IsInInstance()
@@ -634,7 +634,7 @@ function LockPrep_UpdateUI()
         actionFS:SetText("Press |cff00ff00" .. key .. "|r: " .. curLabel)
     elseif anyIncomplete then
         local t = TimeLeft()
-        if gateReliable and t and t > END_PREP_SECS then
+        if t and t > END_PREP_SECS then
             actionFS:SetText(string.format("|cffaaaaaaHolding the finish until %ds left (%ds)|r",
                 END_PREP_SECS, math.floor(t + 0.5)))
         else
@@ -1311,7 +1311,6 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
     elseif event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
         if InArena() then
             gateAt = nil
-            gateReliable = false
             wipe(tradedNames)     -- fresh trade tracking each match
             wipe(tradedGUIDs)
             tradeGUID = nil
@@ -1352,12 +1351,15 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
             end
         end
     elseif event == "START_TIMER" then
-        -- arg1 = timerType, arg2 = seconds left, arg3 = total. Only the arena
-        -- begin timer, and it's the trustworthy source for the finish gate.
+        -- arg1 = timerType, arg2 = seconds left. Extra source for the gate when it
+        -- fires: type 1 is the arena begin timer on the Classic client (what
+        -- DBM-PvP keys on); retail's Enum.StartTimerType.PvPBeginTimer is 0, so
+        -- accept either. Type 2 is the /countdown pull timer - ignore it. On the
+        -- Anniversary client this often doesn't fire, which is fine: the chat
+        -- countdown carries the gate on its own.
         local pvpBegin = Enum and Enum.StartTimerType and Enum.StartTimerType.PvPBeginTimer
-        if pvpBegin and arg1 == pvpBegin and arg2 then
+        if arg2 and (arg1 == 1 or (pvpBegin and arg1 == pvpBegin)) then
             gateAt = GetTime() + arg2
-            gateReliable = true
             Refresh()
         end
     elseif event == "CHAT_MSG_BG_SYSTEM_NEUTRAL" or event == "CHAT_MSG_RAID_BOSS_EMOTE" then
@@ -1409,9 +1411,16 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
     end
 end)
 
--- throttled re-evaluation (handles the time-gated steps without events)
+-- Throttled re-evaluation (handles the time-gated steps, which have no event to
+-- fire when "12s left" arrives - they must be polled). This MUST live on an
+-- always-running frame, NOT on `ui`: OnUpdate only fires while its frame is
+-- shown, and the window is hidden during matches. Tying it to `ui` meant that
+-- once the finish was gated the button's macro was blanked and never re-armed
+-- when the clock crossed the gate, so the finish stayed locked all match.
+local tickerFrame = CreateFrame("Frame")
 local acc = 0
-ui:SetScript("OnUpdate", function(self, elapsed)
+tickerFrame:SetScript("OnUpdate", function(self, elapsed)
+    if not LockPrepDB then return end   -- wait for PLAYER_LOGIN / saved vars
     acc = acc + elapsed
     if acc < 0.2 then return end
     acc = 0
