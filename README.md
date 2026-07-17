@@ -23,9 +23,13 @@ LockPrep has two parts:
    "One minute / Thirty seconds / ..." messages). It shows what's done and what's
    next, and highlights the current step.
 
-Steps are gated by **state and order only**, not the clock, so nothing gets
-blocked if the gate countdown mis-parses. You decide when to fire the final
-Shadow Ward, Tainted Blood, and mount, the same way you time everything else.
+Most steps are gated by **state and order** — a failed cast just stays "not
+done," so your next press retries it. The time-sensitive **finish** (Felhunter,
+Sacrifice, Soul Link, Shadow Ward, Tainted Blood, mount) is additionally held
+until **~12 seconds before the gates** so mashing early doesn't waste your
+short-duration shields; it then unlocks on its own. If no gate countdown is
+detected, the finish falls back to order-only so a missing timer never locks you
+out.
 
 The routine scales with the bracket via **presets** (2s, 3s/5s, BGs, Custom).
 
@@ -81,6 +85,10 @@ checks/unchecks the right boxes:
   key press.
 - Already-traded teammates are tracked for the match so you don't double-hand or
   re-announce.
+- **Warlock partners are skipped** for stone trades (they conjure their own, so a
+  trade would never get accepted). They still get your buffs, and in 3s/5s they
+  grab from the soulwell like everyone else. If a warlock ever *does* want one,
+  they can open the trade and your stone still auto-fills.
 
 ## Spellstone dispel/swap (optional)
 
@@ -117,6 +125,32 @@ The **mount dropdown** in options is populated from mount items in your bags.
   on your client or locale, edit the `CFG` table at the top of `LockPrep.lua`.
 - The checklist window is **off by default**; use the minimap icon or `/lp test`.
 - Settings and keybinds persist per-character in `LockPrepDB`.
+
+## Changelog
+
+### 0.15.0
+
+- **New:** Auto-trade healthstones from your prep key in 2s. When a partner opens
+  a trade, your stones are placed for you and accepted on your next key press, so
+  you can keep mashing through the rest of prep. Announces "open trade" once your
+  stones are ready.
+- **New:** Auto-accepts a teammate's gift trade (e.g. a mage handing back
+  food/water) on your key press.
+- **New:** Warlock partners are no longer offered healthstone trades (they make
+  their own); buffs and Ritual of Souls still cover them.
+- **Changed:** The finish (Felhunter through mount) is now held until ~12s before
+  the gates so mashing early doesn't waste short-duration shields, then unlocks
+  automatically. Falls back to order-only if no countdown is detected.
+- **Fixed:** No more double-cast when mashing the key during a pet summon or
+  healthstone conjure.
+- **Fixed:** Felhunter / Soul Link / Tainted Blood stay in the right order
+  through the pet spawn gap.
+- **Fixed:** Trade accept no longer flickers green/gray, and it respects
+  Blizzard's anti-scam accept lockout instead of getting stuck.
+
+### 0.14.0
+
+- Initial CurseForge release.
 
 ## License
 
