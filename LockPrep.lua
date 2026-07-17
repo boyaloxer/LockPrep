@@ -418,7 +418,8 @@ local currentId
 -- re-arms after they're traded away (bags hit zero) so each new pair re-pings.
 local announcedStones = false
 local function AnnounceOn()
-    return not (LockPrepDB and LockPrepDB.announce == false)
+    -- Off by default now that LockPrep opens trades itself; opt in via options.
+    return LockPrepDB and LockPrepDB.announce == true
 end
 local function HaveAnyStone()
     return Have(CFG.item.hsMajor) or Have(CFG.item.hsMaster)
@@ -985,7 +986,7 @@ ancb:SetSize(22, 22)
 ancb:SetPoint("TOPLEFT", 12, extraY - 38)
 local anlbl = ancb:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 anlbl:SetPoint("LEFT", ancb, "RIGHT", 2, 0)
-anlbl:SetText("Announce 'open trade' in /say (arena)")
+anlbl:SetText("Announce 'open trade' in /say (arena, off by default)")
 ancb:SetScript("OnShow", function(self) self:SetChecked(AnnounceOn()) end)
 ancb:SetScript("OnClick", function(self)
     LockPrepDB = LockPrepDB or {}

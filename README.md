@@ -128,6 +128,11 @@ The **mount dropdown** in options is populated from mount items in your bags.
 
 ## Changelog
 
+### 0.15.1
+
+- **Changed:** The `/say` "open trade" announce is now **off by default** (opt in
+  from options). LockPrep opens trades itself now, so the shout isn't needed.
+
 ### 0.15.0
 
 - **New:** LockPrep now opens the trade for you (2s). Press your prep key and it
