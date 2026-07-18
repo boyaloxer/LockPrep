@@ -128,6 +128,16 @@ The **mount dropdown** in options is populated from mount items in your bags.
 
 ## Changelog
 
+### 0.15.2
+
+- **New:** The gate mount works out of the box — if you haven't picked one,
+  LockPrep auto-uses the first ground mount in your bags instead of a hardcoded
+  name.
+- **New:** Warlock class mounts (Summon Felsteed / Summon Dreadsteed) can be
+  chosen as your gate mount; the step casts them instead of using an item.
+- **Changed:** The mount picker now lists only ground mounts — flying mounts
+  (unusable in the arena) are filtered out.
+
 ### 0.15.1
 
 - **Changed:** The `/say` "open trade" announce is now **off by default** (opt in

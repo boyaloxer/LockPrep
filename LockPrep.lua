@@ -127,6 +127,20 @@ local function MountName()
     return DEFAULT_MOUNT
 end
 
+-- Warlock class mounts are SPELLS you cast, not bag items you use, so they need
+-- /cast instead of /use. Keyed by localized spell name.
+local WARLOCK_MOUNT_IDS = { 5784, 23161 }   -- Summon Felsteed, Summon Dreadsteed
+local WARLOCK_MOUNT_NAME = {
+    [GetSpellInfo(5784) or "Summon Felsteed"]   = true,
+    [GetSpellInfo(23161) or "Summon Dreadsteed"] = true,
+}
+-- The action line for the mount step: cast the warlock steed, or use an item mount.
+local function MountMacro()
+    local m = MountName()
+    if WARLOCK_MOUNT_NAME[m] then return "/cast " .. m end
+    return "/use " .. m
+end
+
 -- Whether we're in "ritual" mode: driven purely by the checkboxes (set via a
 -- preset or by hand) - Ritual of Souls enabled and the manual pair disabled.
 local function UseRitual()
@@ -368,7 +382,7 @@ local function BuildSteps()
           ready = function() return EndPrepReady()
                     and (PetFamily() == "Felhunter" or petSummonedMax >= 3) end })
     -- Mount is the very last thing (mounting locks out all abilities).
-    add({ id = "mount", group = "mount", label = "Mount up (" .. MountName() .. ")", macro = "/use " .. MountName(),
+    add({ id = "mount", group = "mount", label = "Mount up (" .. MountName() .. ")", macro = MountMacro(),
           done = function() return IsMounted() end,
           ready = EndPrepReady })
 end
@@ -1119,6 +1133,12 @@ OwnedMounts = function()
                     addName((GetItemInfo(link)) or link:match("%[(.-)%]"))
                 end
             end
+        end
+    end
+    -- warlock class mounts (spells, not bag items) if the player knows them
+    for _, id in ipairs(WARLOCK_MOUNT_IDS) do
+        if not IsSpellKnown or IsSpellKnown(id) then
+            addName(GetSpellInfo(id))
         end
     end
     table.sort(names)
