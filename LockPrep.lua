@@ -113,7 +113,19 @@ local function HSStepDone(id, item) return Have(item) or hsPending[id] == true e
 
 -- mount for the gate sprint (configurable so the addon is shareable)
 local DEFAULT_MOUNT = "Red Skeletal Warhorse"
-local function MountName() return (LockPrepDB and LockPrepDB.mount) or DEFAULT_MOUNT end
+local OwnedMounts   -- forward decl; defined later (scans bags for mount items)
+local function MountName()
+    if LockPrepDB and LockPrepDB.mount then return LockPrepDB.mount end
+    -- No explicit choice: auto-use the first ground mount found in the user's
+    -- bags so the mount step works out of the box for anyone, not just the
+    -- author. OwnedMounts() already filters out flying mounts (unusable in the
+    -- arena). Falls back to a sensible name if the bag scan comes up empty.
+    if OwnedMounts then
+        local owned = OwnedMounts()
+        if owned and owned[1] then return owned[1] end
+    end
+    return DEFAULT_MOUNT
+end
 
 -- Whether we're in "ritual" mode: driven purely by the checkboxes (set via a
 -- preset or by hand) - Ritual of Souls enabled and the manual pair disabled.
@@ -1045,18 +1057,42 @@ UIDropDownMenu_SetWidth(mdd, 200)
 
 local function SetMount(name)
     LockPrepDB = LockPrepDB or {}
-    LockPrepDB.mount = (name ~= DEFAULT_MOUNT) and name or nil
+    -- store exactly what was picked; auto-detect only applies when nothing is
+    -- saved (use /lp mount reset to clear back to auto)
+    LockPrepDB.mount = name
     UIDropDownMenu_SetText(mdd, MountName())
     BuildSteps(); Refresh()
+end
+
+-- Flying mounts can't be summoned in the arena, and bag items don't flag ground
+-- vs flying. But TBC's mount naming is consistent: every flying mount is a
+-- gryphon, wind rider, nether drake, nether ray, hippogryph, flying machine, or
+-- Ashes of Al'ar - and no ground mount uses any of those words. So we exclude on
+-- keywords (this also covers the arena Nether Drakes a PvP player will own).
+-- If someone really wants a flying mount here, /lp mount <name> still sets it.
+local FLYING_MOUNT_KEYWORDS = {
+    "gryphon", "wind rider", "nether drake", "netherwing",
+    "nether ray", "hippogryph", "flying machine", "al'ar",
+}
+local function IsFlyingMountName(name)
+    local lc = name:lower()
+    for _, kw in ipairs(FLYING_MOUNT_KEYWORDS) do
+        if lc:find(kw, 1, true) then return true end
+    end
+    return false
 end
 
 -- collect owned mounts. In TBC (2.5.x) mounts are ITEMS in your bags, not
 -- entries in the WotLK+ companion journal, so scan the bags. We also fold in
 -- any learned companions in case this ever runs on a later client.
-local function OwnedMounts()
+-- Flying mounts are filtered out (see IsFlyingMountName) since they can't be
+-- used in the arena.
+OwnedMounts = function()
     local names, seen = {}, {}
     local function addName(nm)
-        if nm and nm ~= "" and not seen[nm] then seen[nm] = true; names[#names + 1] = nm end
+        if nm and nm ~= "" and not seen[nm] and not IsFlyingMountName(nm) then
+            seen[nm] = true; names[#names + 1] = nm
+        end
     end
     -- learned mounts (usually empty in TBC)
     local n = (GetNumCompanions and GetNumCompanions("MOUNT")) or 0
@@ -1091,10 +1127,11 @@ end
 
 UIDropDownMenu_Initialize(mdd, function(self, level)
     local names = OwnedMounts()
+    local current = MountName()   -- resolve once (may scan bags) instead of per entry
     for _, cname in ipairs(names) do
         local info = UIDropDownMenu_CreateInfo()
         info.text = cname
-        info.checked = (MountName() == cname)
+        info.checked = (current == cname)
         info.func = function() SetMount(cname) end
         UIDropDownMenu_AddButton(info, level)
     end
