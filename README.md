@@ -128,6 +128,14 @@ The **mount dropdown** in options is populated from mount items in your bags.
 
 ## Changelog
 
+### 0.15.3
+
+- **Fixed:** Entering the arena with a pet already out no longer breaks the early
+  prep. Carrying in a higher-rank demon (e.g. a Felhunter) used to mark Summon Imp
+  and Summon Voidwalker as already done, which stranded Fire Shield (needs the Imp)
+  and Sacrifice (needs the Voidwalker). The routine now runs the full chain in
+  order regardless of which pet you zone in with.
+
 ### 0.15.2
 
 - **New:** The gate mount works out of the box — if you haven't picked one,

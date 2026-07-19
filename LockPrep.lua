@@ -108,7 +108,14 @@ local SUMMON_NAME = {
 local petSummonedMax = 0   -- highest pet rank summoned this match (monotonic)
 local hsPending = {}       -- "hs_major"/"hs_master" -> true until the stone lands
 
-local function PetStepDone(rank) return PetRank() >= rank or petSummonedMax >= rank end
+-- A summon step is done if we've summoned that rank (or higher) THIS match
+-- (petSummonedMax, monotonic, set on cast success) OR the live pet is EXACTLY
+-- that rank. We deliberately use PetRank() == rank (not >=): a HIGHER-rank pet
+-- carried in from before the match (e.g. zoning in with a Felhunter) must NOT
+-- mark the lower Imp/Voidwalker summons done, or Fire Shield (needs Imp) and
+-- Sacrifice (needs Voidwalker) get stranded. Summoning the Imp first replaces
+-- the carried-in pet, so the chain self-corrects into normal order.
+local function PetStepDone(rank) return petSummonedMax >= rank or PetRank() == rank end
 local function HSStepDone(id, item) return Have(item) or hsPending[id] == true end
 
 -- mount for the gate sprint (configurable so the addon is shareable)
