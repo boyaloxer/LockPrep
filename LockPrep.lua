@@ -231,6 +231,8 @@ local tradedNames = {}
 local tradedGUIDs = {}
 local tradeGUID                    -- GUID of the unit in the current trade window
 local iAccepted = false            -- is OUR side of the trade accepted? (from TRADE_ACCEPT_UPDATE)
+local partnerAccepted = false      -- the OTHER side's accept flag (TRADE_ACCEPT_UPDATE arg2)
+local tradeCommitStones = 0        -- healthstones in OUR side seen while BOTH sides were accepted
 local function TradedCount()
     local n = 0
     for _ in pairs(tradedNames) do n = n + 1 end
@@ -1340,6 +1342,12 @@ ev:RegisterEvent("START_TIMER")   -- reliable arena begin timer (Blizzard TimerT
 ev:RegisterEvent("TRADE_SHOW")
 ev:RegisterEvent("TRADE_CLOSED")
 ev:RegisterEvent("TRADE_ACCEPT_UPDATE")
+-- Either side changing the trade contents un-accepts BOTH sides (and starts the
+-- anti-scam accept lockout). WoW signals that via these item-change events, not
+-- reliably via TRADE_ACCEPT_UPDATE, so we listen here to keep our accept mirror
+-- honest -- otherwise iAccepted sticks true and PreClick refuses to re-accept.
+ev:RegisterEvent("TRADE_PLAYER_ITEM_CHANGED")
+ev:RegisterEvent("TRADE_TARGET_ITEM_CHANGED")
 ev:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 -- Player-only cast start/stop so the button blanks the instant a summon/conjure
 -- begins (kills the spell-queue duplicate) and re-offers if the cast is cut.
@@ -1347,6 +1355,13 @@ ev:RegisterUnitEvent("UNIT_SPELLCAST_START", "player")
 ev:RegisterUnitEvent("UNIT_SPELLCAST_STOP", "player")
 ev:RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTED", "player")
 ev:RegisterUnitEvent("UNIT_SPELLCAST_FAILED", "player")
+-- Channels (Ritual of Souls) don't fire the *_START cast events, so register the
+-- channel equivalents too. They fall through to the default Refresh() branch,
+-- which blanks the button the instant the channel begins -- the same mid-cast
+-- mash protection the timed casts already get.
+ev:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_START", "player")
+ev:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_STOP", "player")
+ev:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_UPDATE", "player")
 
 -- Live updater: while Summon Felhunter is casting, refresh ~10x/sec so the
 -- progress % and the swap-to-sacrifice button stay current, plus one final
@@ -1376,6 +1391,19 @@ end
 ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
     if event == "PLAYER_LOGIN" then
         LockPrepDB = LockPrepDB or {}
+        -- Re-resolve the spell names the mid-cast blanks/latches key on, now that
+        -- the client's spell cache is warm. At file-load these can come back nil
+        -- (cold cache) and fall back to English strings, which would silently break
+        -- the guards on a non-enUS client. We only overwrite when a real name
+        -- resolves, so this never nils anything and is a no-op where load-time
+        -- values were already correct. BuildSteps re-runs per match, so step
+        -- castNames pick these up before any arena.
+        CREATE_HS_NAME = GetSpellInfo(6201)  or CREATE_HS_NAME
+        SUMMON_NAME[1] = GetSpellInfo(688)   or SUMMON_NAME[1]
+        SUMMON_NAME[2] = GetSpellInfo(697)   or SUMMON_NAME[2]
+        SUMMON_NAME[3] = GetSpellInfo(691)   or SUMMON_NAME[3]
+        RITUAL_NAME    = GetSpellInfo(29893) or RITUAL_NAME
+        FEL_NAME       = GetSpellInfo(691)   or FEL_NAME
         if not LockPrepDB.disabled then
             LockPrepDB.disabled = { hsmajor = true, spellstone = true, ritual = true } -- 2s preset
             LockPrepDB.preset = "2s"
@@ -1454,12 +1482,35 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
     elseif event == "CHAT_MSG_BG_SYSTEM_NEUTRAL" or event == "CHAT_MSG_RAID_BOSS_EMOTE" then
         OnCountdownMessage(arg1)
     elseif event == "TRADE_ACCEPT_UPDATE" then
-        -- arg1 = our side accepted (0/1); keep iAccepted in sync so PreClick only
-        -- calls AcceptTrade() once (a second call toggles it back off).
+        -- arg1 = our side accepted (0/1), arg2 = the partner's side. Keep iAccepted
+        -- in sync so PreClick only calls AcceptTrade() once (a second call toggles
+        -- it back off).
         iAccepted = (arg1 == 1)
+        partnerAccepted = (arg2 == 1)
+        -- When BOTH sides are green the trade is about to go through. Snapshot how
+        -- many healthstones are in OUR side right now: if it's >0, this completion
+        -- credits the partner regardless of bag-count timing (a conjure landing
+        -- mid-trade or a bag-update lag can otherwise hide the count delta and make
+        -- us re-trade someone who already got a stone).
+        if iAccepted and partnerAccepted then
+            local s = StonesInTrade()
+            if s > tradeCommitStones then tradeCommitStones = s end
+        end
         Refresh()   -- un-blank prep once accepted / re-blank if our accept reset
+    elseif event == "TRADE_PLAYER_ITEM_CHANGED" or event == "TRADE_TARGET_ITEM_CHANGED" then
+        -- Contents changed on either side -> WoW un-accepted both sides. Clear our
+        -- mirror so PreClick will accept again once the anti-scam lockout clears,
+        -- and drop the both-accepted stone snapshot so it re-captures at the real
+        -- completion (a fresh accept is required now). Re-blank the prep cast via
+        -- Refresh since we're back to "needs accept".
+        iAccepted = false
+        partnerAccepted = false
+        tradeCommitStones = 0
+        Refresh()
     elseif event == "TRADE_SHOW" then
         iAccepted = false
+        partnerAccepted = false
+        tradeCommitStones = 0
         tradeHadStones = false
         tradeStartHS = HSCount()
         tradeGUID = UnitGUID("npc")   -- the unit we're trading with (either direction)
@@ -1474,20 +1525,31 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
         if tradeArmed or giveStone then FillTrade() end
         Refresh()                     -- blank the prep cast while the window is up
     elseif event == "TRADE_CLOSED" then
-        -- success is detected by our stones actually leaving the bags. Check
-        -- after a short delay so the bag update has landed.
         lastTradeClosed = GetTime()   -- start the re-open cooldown (see PreClick)
         iAccepted = false
+        partnerAccepted = false
         local partner, guid, before = tradePartner, tradeGUID, tradeStartHS
-        tradeHadStones = false; tradePartner = nil; tradeGUID = nil
+        local committed = tradeCommitStones   -- our stones in-window when both accepted
+        tradeHadStones = false; tradePartner = nil; tradeGUID = nil; tradeCommitStones = 0
         Refresh()                     -- restore the prep cast now the window is gone
-        C_Timer.After(0.4, function()
-            if HSCount() < before then
-                if guid then tradedGUIDs[guid] = true end
-                if partner then tradedNames[partner] = true end
-                Refresh()
-            end
-        end)
+        -- Credit the partner with their stone. Store the GUID (realm-proof) plus a
+        -- realm-stripped name so HasTraded()'s UnitName fallback can't miss on a
+        -- cross-realm skirmish partner.
+        local function record()
+            if guid then tradedGUIDs[guid] = true end
+            if partner then tradedNames[(partner:match("^[^-]+")) or partner] = true end
+            Refresh()
+        end
+        if committed > 0 then
+            -- Both sides accepted with our healthstone(s) in the window: it went
+            -- through. Deterministic, immune to conjure timing / bag-update lag.
+            record()
+        else
+            -- Fallback for clients that don't report the partner's accept flag:
+            -- infer from our stones leaving the bags. Poll twice for bag lag.
+            C_Timer.After(0.4, function() if HSCount() < before then record() end end)
+            C_Timer.After(1.2, function() if HSCount() < before then record() end end)
+        end
     elseif event == "GROUP_ROSTER_UPDATE" then
         -- roster affects partner buff steps; rebuild to keep them current
         BuildSteps()

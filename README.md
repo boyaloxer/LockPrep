@@ -128,6 +128,21 @@ The **mount dropdown** in options is populated from mount items in your bags.
 
 ## Changelog
 
+### 0.15.4
+
+- **Fixed:** Rare case where a healthstone could be offered again to a partner who
+  already got one. A completed trade is now credited from the accept state (both
+  sides accepted with your stone in the window) instead of guessing from bag
+  counts, so a conjure landing mid-trade or a bag-update lag can no longer hide it.
+- **Fixed:** Getting stuck unable to re-accept after a teammate adds or removes
+  items mid-trade (for example a mage handing back food/water). Any change to the
+  trade now resets the accept state, so your next press accepts once Blizzard's
+  anti-scam lockout clears.
+- **Fixed:** Mashing right as Ritual of Souls begins could hiccup the channel;
+  channels now blank the button instantly, the same as timed casts.
+- **Changed:** Spell names used by the mid-cast safeguards are re-resolved on
+  login (cold-cache / non-English insurance).
+
 ### 0.15.3
 
 - **Fixed:** Entering the arena with a pet already out no longer breaks the early
