@@ -76,15 +76,12 @@ checks/unchecks the right boxes:
 
 ## Healthstone trading (2s)
 
-- When a stone is ready, LockPrep can shout a battle-cry in `/say` ("Open trade
-  if you want to live." or "Soulwell's up...") so teammates know to open a trade.
-  Toggle it in options; it only fires when a teammate actually needs a stone.
 - When a teammate opens a trade with you (or you open one), your healthstones are
   auto-dropped into the trade window. You still accept it yourself with your
   normal button or the `/lp bindaccept` key; nothing is accepted without a real
   key press.
-- Already-traded teammates are tracked for the match so you don't double-hand or
-  re-announce.
+- Already-traded teammates are tracked for the match so you don't double-hand a
+  stone to the same person.
 - **Warlock partners are skipped** for stone trades (they conjure their own, so a
   trade would never get accepted). They still get your buffs, and in 3s/5s they
   grab from the soulwell like everyone else. If a warlock ever *does* want one,
@@ -106,7 +103,6 @@ it dispels and swaps back to your wand, and pressing again re-arms the stone.
 /lp options               choose which steps to include (or left-click the icon)
 /lp preset 2s|3s5s|bg|custom   apply a preset (custom keeps your boxes)
 /lp trade                 arm one trade to auto-fill your healthstones (auto in arena)
-/lp announce              say the "open trade" battle-cry now
 /lp mount <name>          set the gate-sprint mount (or pick it in /lp options)
 /lp bind <KEY>            bind the next-step button (e.g. /lp bind 0)
 /lp bindss <KEY>          bind the spellstone dispel/swap button
@@ -127,6 +123,11 @@ The **mount dropdown** in options is populated from mount items in your bags.
 - Settings and keybinds persist per-character in `LockPrepDB`.
 
 ## Changelog
+
+### 0.15.5
+
+- **Removed:** The `/say` "open trade" announce option (and the `/lp announce`
+  command). LockPrep opens trades itself now, so the shout was redundant.
 
 ### 0.15.4
 

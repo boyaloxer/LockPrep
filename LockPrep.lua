@@ -226,7 +226,7 @@ end
 
 -- per-match healthstone trade tracking (declared early; used by the UI)
 -- We track by GUID (unique, realm-proof) so cross-realm skirmish partners are
--- matched correctly; tradedNames stays for the announce count / display.
+-- matched correctly; tradedNames stays for the traded-count display.
 local tradedNames = {}
 local tradedGUIDs = {}
 local tradeGUID                    -- GUID of the unit in the current trade window
@@ -448,30 +448,8 @@ local function UpdateSpellstoneButton()
 end
 
 local currentId
--- Party-chat announce: tell teammates to open a trade once stones are ready.
--- One-shot per batch: fires when we go from "no stones" to "have a stone", and
--- re-arms after they're traded away (bags hit zero) so each new pair re-pings.
-local announcedStones = false
-local function AnnounceOn()
-    -- Off by default now that LockPrep opens trades itself; opt in via options.
-    return LockPrepDB and LockPrepDB.announce == true
-end
 local function HaveAnyStone()
     return Have(CFG.item.hsMajor) or Have(CFG.item.hsMaster)
-end
-local function AnnounceStones()
-    local msg
-    if UseRitual() then
-        msg = "Soulwell's up - grab a healthstone if you want to live."
-    else
-        -- trade mode: count only warlock-free partners (warlocks self-supply)
-        local partners = #StonePartners()
-        msg = "Open trade if you want to live."
-        if partners > 0 then
-            msg = msg .. " (" .. TradedCount() .. "/" .. partners .. " traded)"
-        end
-    end
-    SendChatMessage(msg, "SAY")
 end
 
 -- Felhunter-summon awareness: while you're casting Summon Felhunter we hand the
@@ -540,29 +518,6 @@ local function Refresh()
     end
     if not InCombatLockdown() then
         button:SetAttribute("macrotext", macro)
-    end
-    -- battle-cry: in 3s/5s once the soulwell is up; in 2s when a stone is ready
-    -- (re-arms after they're traded away, and skips once everyone's stocked).
-    if AnnounceOn() and InArena() then
-        local ready = UseRitual() and ritualDone or (not UseRitual() and HaveAnyStone())
-        -- Only shout when a teammate is actually there to grab a stone. Without
-        -- this, a partner leaving mid-match drops the count to 0 and the old
-        -- "solo" clause would fire the message into an empty arena.
-        local needed
-        if UseRitual() then
-            needed = #Partners() > 0
-        else
-            -- trade mode: only warlock-free partners need a stone from us
-            needed = (#StonePartners() - TradedCount()) > 0
-        end
-        if ready then
-            if not announcedStones and needed then
-                announcedStones = true
-                AnnounceStones()
-            end
-        else
-            announcedStones = false
-        end
     end
     if LockPrep_UpdateUI then LockPrep_UpdateUI() end
 end
@@ -926,7 +881,7 @@ end)
 -- Options panel (checkboxes to include/exclude step groups)
 -- =====================================================================
 local opt = CreateFrame("Frame", "LockPrepOptions", UIParent, "BackdropTemplate")
-opt:SetSize(300, 60 + #GROUPS * 22 + 270)
+opt:SetSize(300, 60 + #GROUPS * 22 + 248)
 opt:SetPoint("CENTER")
 opt:SetBackdrop({
     bgFile   = "Interface\\Buttons\\WHITE8X8",
@@ -1016,21 +971,9 @@ atcb:SetScript("OnClick", function(self)
     LockPrepDB.autoTrade = self:GetChecked() and true or false
 end)
 
-local ancb = CreateFrame("CheckButton", nil, opt, "UICheckButtonTemplate")
-ancb:SetSize(22, 22)
-ancb:SetPoint("TOPLEFT", 12, extraY - 38)
-local anlbl = ancb:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-anlbl:SetPoint("LEFT", ancb, "RIGHT", 2, 0)
-anlbl:SetText("Announce 'open trade' in /say (arena, off by default)")
-ancb:SetScript("OnShow", function(self) self:SetChecked(AnnounceOn()) end)
-ancb:SetScript("OnClick", function(self)
-    LockPrepDB = LockPrepDB or {}
-    LockPrepDB.announce = self:GetChecked() and true or false
-end)
-
 local ascb = CreateFrame("CheckButton", nil, opt, "UICheckButtonTemplate")
 ascb:SetSize(22, 22)
-ascb:SetPoint("TOPLEFT", 12, extraY - 60)
+ascb:SetPoint("TOPLEFT", 12, extraY - 38)
 local aslbl = ascb:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 aslbl:SetPoint("LEFT", ascb, "RIGHT", 2, 0)
 aslbl:SetText("Auto-show window when entering an arena")
@@ -1048,12 +991,12 @@ local function PresetText()
 end
 
 local pslbl = opt:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-pslbl:SetPoint("TOPLEFT", 16, extraY - 90)
+pslbl:SetPoint("TOPLEFT", 16, extraY - 68)
 pslbl:SetText("Preset:")
 
 -- dropdown sits below its label (labels get cut off if placed beside it)
 local psdd = CreateFrame("Frame", "LockPrepPresetDropDown", opt, "UIDropDownMenuTemplate")
-psdd:SetPoint("TOPLEFT", 0, extraY - 108)
+psdd:SetPoint("TOPLEFT", 0, extraY - 86)
 UIDropDownMenu_SetWidth(psdd, 200)
 UIDropDownMenu_Initialize(psdd, function(self, level)
     for _, key in ipairs(PRESET_ORDER) do
@@ -1071,11 +1014,11 @@ psdd:SetScript("OnShow", function() UIDropDownMenu_SetText(psdd, PresetText()) e
 
 -- mount selector: pick from your learned mounts (or /lp mount <name>)
 local mlbl = opt:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-mlbl:SetPoint("TOPLEFT", 16, extraY - 150)
+mlbl:SetPoint("TOPLEFT", 16, extraY - 128)
 mlbl:SetText("Gate mount:")
 
 local mdd = CreateFrame("Frame", "LockPrepMountDropDown", opt, "UIDropDownMenuTemplate")
-mdd:SetPoint("TOPLEFT", 0, extraY - 168)
+mdd:SetPoint("TOPLEFT", 0, extraY - 146)
 UIDropDownMenu_SetWidth(mdd, 200)
 
 local function SetMount(name)
@@ -1175,7 +1118,7 @@ mdd:SetScript("OnShow", function() UIDropDownMenu_SetText(mdd, MountName()) end)
 
 -- keybind: laid out like the Preset / Gate mount controls (label, then a box)
 local kblbl = opt:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-kblbl:SetPoint("TOPLEFT", 16, extraY - 210)
+kblbl:SetPoint("TOPLEFT", 16, extraY - 188)
 kblbl:SetText("Keybind:")
 
 local kbhint = opt:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
@@ -1275,7 +1218,7 @@ local function MakeKeyRow(labelText, buttonName, yoff)
     return row
 end
 
-MakeKeyRow("the next-step button", "LockPrepButton", extraY - 228)
+MakeKeyRow("the next-step button", "LockPrepButton", extraY - 206)
 
 opt:HookScript("OnShow", RefreshKeyButtons)
 
@@ -1433,7 +1376,6 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
             tradeGUID = nil
             petSummonedMax = 0    -- fresh creation-delay latches each match
             wipe(hsPending)
-            announcedStones = false
             ritualDone = false
             BuildSteps()          -- fresh steps for this match
             if AutoShowOn() then
@@ -1685,8 +1627,6 @@ SlashCmdList["LOCKPREP"] = function(msg)
     elseif cmd == "trade" then
         tradeArmed = true
         print("|cffcc66ffLockPrep|r: armed - open a trade now and your healthstones drop in (once)")
-    elseif cmd == "announce" then
-        AnnounceStones()
     elseif cmd == "spellstone" or cmd == "ss" then
         print("|cffcc66ffLockPrep|r spellstone dispel/swap:")
         print("  Prep equips the stone (30s equip CD burns off before the gates).")
@@ -1699,7 +1639,6 @@ SlashCmdList["LOCKPREP"] = function(msg)
         print("  /lp minimap  - show/hide the minimap icon")
         print("  /lp options  - choose which steps to include (or left-click the icon)")
         print("  /lp trade  - arm one trade to auto-fill your healthstones (auto in arena)")
-        print("  /lp announce  - say the 'open trade' battle-cry now")
         print("  /lp unlock | lock  - move / pin the window")
         print("  /lp bind <KEY>  - bind the next-step button (e.g. /lp bind 0)")
         print("  /lp bindss <KEY>  - bind the spellstone dispel/swap button")
