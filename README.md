@@ -124,6 +124,19 @@ The **mount dropdown** in options is populated from mount items in your bags.
 
 ## Changelog
 
+### 0.15.6
+
+- **Fixed:** Ritual of Souls now advances reliably. Completion is detected from the
+  spell going on its real cooldown when the Soulwell spawns, instead of the channel
+  ending or a combat-log event (the channel ends early when teammates click, and the
+  well has no create event). A cancelled or interrupted ritual leaves no cooldown, so
+  the step correctly re-offers instead of skipping ahead.
+- **Fixed:** This also removes the case where Ritual of Souls was skipped in BGs and
+  jumped straight to Summon Imp.
+- **Changed:** Debug logging (`/lp debug`) now traces only casts/channels and no
+  longer needs the combat log, so it works in the open world for testing too. It is
+  off by default.
+
 ### 0.15.5
 
 - **Removed:** The `/say` "open trade" announce option (and the `/lp announce`

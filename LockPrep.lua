@@ -157,7 +157,26 @@ local function UseRitual()
     local masterOn = not (d and d.hsmaster)
     return ritualOn and not (majorOn or masterOn)
 end
-local ritualDone = false  -- set when Ritual of Souls is cast; reset each match
+local ritualDone = false  -- set when the Soulwell is actually created; reset each match
+local ritualChannelStart = nil  -- GetTime() the current Ritual channel began
+local debugOn = false     -- /lp debug: verbose ritual/cast tracing
+-- Debug lines are ALSO appended to LockPrepDB.log so they persist to the
+-- SavedVariables file on /reload (the in-game chat can't be copied). Capped so it
+-- can't grow without bound.
+local function DPrint(...)
+    if not debugOn then return end
+    local msg = table.concat({ tostringall(...) }, "  ")
+    print("|cff66ccffLP|r " .. msg)
+    LockPrepDB = LockPrepDB or {}
+    local t = LockPrepDB.log or {}
+    t[#t + 1] = date("%H:%M:%S") .. "  " .. msg
+    if #t > 1000 then
+        local trimmed = {}
+        for i = #t - 600 + 1, #t do trimmed[#trimmed + 1] = t[i] end
+        t = trimmed
+    end
+    LockPrepDB.log = t
+end
 local RITUAL_NAME = GetSpellInfo(29893) or "Ritual of Souls"  -- 29893 = Ritual of Souls
 
 -- generic "am I casting/channeling this spell right now" (by localized name)
@@ -195,6 +214,14 @@ end
 local function InArena()
     local _, itype = IsInInstance()
     return itype == "arena"
+end
+
+-- Any zone where the prep routine runs: arenas and battlegrounds (the BGs preset
+-- relies on this so Ritual of Souls' SPELL_CREATE is detected and the per-match
+-- state resets outside arenas too).
+local function InPrepZone()
+    local _, itype = IsInInstance()
+    return itype == "arena" or itype == "pvp"
 end
 
 local function Partners()
@@ -300,8 +327,13 @@ local function BuildSteps()
     add({ id = "hs_master", group = "hsmaster", label = "Master Healthstone", macro = CFG.cast.hsMaster,
           castName = CREATE_HS_NAME,
           done = function() return HSStepDone("hs_master", CFG.item.hsMaster) end })
+    -- Ritual is done ONLY when the Soulwell actually spawns (ritualDone, set from
+    -- the SPELL_CREATE combat-log event). It deliberately does NOT count "you have
+    -- a healthstone" as done -- a warlock almost always carries their own stone,
+    -- which would make the ritual skip itself every time (it exists to drop a well
+    -- for the TEAM, not to give you a stone).
     add({ id = "ritual", group = "ritual", label = "Ritual of Souls (soulwell for the team)", macro = CFG.cast.ritual,
-          done = function() return ritualDone or Have(CFG.item.hsMaster) or Have(CFG.item.hsMajor) end })
+          done = function() return ritualDone end })
 
     -- Spellstone: create it, then equip it in the wand/relic slot.
     -- (In TBC the spellstone is a wand-slot relic: passive +spell crit, plus an
@@ -881,7 +913,7 @@ end)
 -- Options panel (checkboxes to include/exclude step groups)
 -- =====================================================================
 local opt = CreateFrame("Frame", "LockPrepOptions", UIParent, "BackdropTemplate")
-opt:SetSize(300, 60 + #GROUPS * 22 + 248)
+opt:SetSize(300, 60 + #GROUPS * 22 + 270)
 opt:SetPoint("CENTER")
 opt:SetBackdrop({
     bgFile   = "Interface\\Buttons\\WHITE8X8",
@@ -983,6 +1015,22 @@ ascb:SetScript("OnClick", function(self)
     LockPrepDB.autoShow = self:GetChecked() and true or false
 end)
 
+local dbgcb = CreateFrame("CheckButton", nil, opt, "UICheckButtonTemplate")
+dbgcb:SetSize(22, 22)
+dbgcb:SetPoint("TOPLEFT", 12, extraY - 60)
+local dbglbl = dbgcb:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+dbglbl:SetPoint("LEFT", dbgcb, "RIGHT", 2, 0)
+dbglbl:SetText("Debug logging (traces casts to chat)")
+dbgcb:SetScript("OnShow", function(self) self:SetChecked(debugOn) end)
+dbgcb:SetScript("OnClick", function(self)
+    debugOn = self:GetChecked() and true or false
+    LockPrepDB = LockPrepDB or {}
+    LockPrepDB.debug = debugOn
+    if debugOn then LockPrepDB.log = {} end   -- fresh capture each time it's turned on
+    print("|cffcc66ffLockPrep|r: debug tracing |cffffffff" .. (debugOn and "ON" or "OFF") .. "|r"
+          .. (debugOn and " - do the ritual test, then |cffffffff/reload|r to save the log to disk." or ""))
+end)
+
 -- Presets dropdown: pick 2s / 3s-5s / BGs and it checks/unchecks the right boxes
 local function PresetText()
     local key = LockPrepDB and LockPrepDB.preset
@@ -991,12 +1039,12 @@ local function PresetText()
 end
 
 local pslbl = opt:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-pslbl:SetPoint("TOPLEFT", 16, extraY - 68)
+pslbl:SetPoint("TOPLEFT", 16, extraY - 90)
 pslbl:SetText("Preset:")
 
 -- dropdown sits below its label (labels get cut off if placed beside it)
 local psdd = CreateFrame("Frame", "LockPrepPresetDropDown", opt, "UIDropDownMenuTemplate")
-psdd:SetPoint("TOPLEFT", 0, extraY - 86)
+psdd:SetPoint("TOPLEFT", 0, extraY - 108)
 UIDropDownMenu_SetWidth(psdd, 200)
 UIDropDownMenu_Initialize(psdd, function(self, level)
     for _, key in ipairs(PRESET_ORDER) do
@@ -1014,11 +1062,11 @@ psdd:SetScript("OnShow", function() UIDropDownMenu_SetText(psdd, PresetText()) e
 
 -- mount selector: pick from your learned mounts (or /lp mount <name>)
 local mlbl = opt:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-mlbl:SetPoint("TOPLEFT", 16, extraY - 128)
+mlbl:SetPoint("TOPLEFT", 16, extraY - 150)
 mlbl:SetText("Gate mount:")
 
 local mdd = CreateFrame("Frame", "LockPrepMountDropDown", opt, "UIDropDownMenuTemplate")
-mdd:SetPoint("TOPLEFT", 0, extraY - 146)
+mdd:SetPoint("TOPLEFT", 0, extraY - 168)
 UIDropDownMenu_SetWidth(mdd, 200)
 
 local function SetMount(name)
@@ -1118,7 +1166,7 @@ mdd:SetScript("OnShow", function() UIDropDownMenu_SetText(mdd, MountName()) end)
 
 -- keybind: laid out like the Preset / Gate mount controls (label, then a box)
 local kblbl = opt:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-kblbl:SetPoint("TOPLEFT", 16, extraY - 188)
+kblbl:SetPoint("TOPLEFT", 16, extraY - 210)
 kblbl:SetText("Keybind:")
 
 local kbhint = opt:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
@@ -1218,7 +1266,7 @@ local function MakeKeyRow(labelText, buttonName, yoff)
     return row
 end
 
-MakeKeyRow("the next-step button", "LockPrepButton", extraY - 206)
+MakeKeyRow("the next-step button", "LockPrepButton", extraY - 228)
 
 opt:HookScript("OnShow", RefreshKeyButtons)
 
@@ -1331,9 +1379,26 @@ local function OnCountdownMessage(msg)
     elseif msg:find("has begun") or msg:find("gates are open") then gateAt = GetTime() end
 end
 
+-- Decide whether a just-ended Ritual of Souls channel actually created the Soulwell.
+-- There's no combat-log event for the well and the channel ends early on success,
+-- so we key off the spell's cooldown: a successful ritual triggers its real ~5min
+-- cooldown; a cancel/interrupt does not. We only count a cooldown that STARTED
+-- during this channel (start >= channelStart - 1s) so a leftover cooldown from an
+-- earlier success can't mark a later cancel as done. GCD is excluded via dur > 10.
+local function CheckRitualCompletion(channelStart)
+    if ritualDone or not channelStart then return end
+    local start, dur = GetSpellCooldown(29893)
+    if start and start > 0 and dur and dur > 10 and start >= (channelStart - 1) then
+        ritualDone = true
+        DPrint("ritualDone <- cooldown", "cd=" .. tostring(start) .. "/" .. tostring(dur))
+        Refresh()
+    end
+end
+
 ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
     if event == "PLAYER_LOGIN" then
         LockPrepDB = LockPrepDB or {}
+        debugOn = LockPrepDB.debug or false
         -- Re-resolve the spell names the mid-cast blanks/latches key on, now that
         -- the client's spell cache is warm. At file-load these can come back nil
         -- (cold cache) and fall back to English strings, which would silently break
@@ -1369,7 +1434,7 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
             print("  In the arena: just mash your bound key - it does each step in order.")
         end
     elseif event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
-        if InArena() then
+        if InPrepZone() then
             gateAt = nil
             wipe(tradedNames)     -- fresh trade tracking each match
             wipe(tradedGUIDs)
@@ -1377,6 +1442,7 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
             petSummonedMax = 0    -- fresh creation-delay latches each match
             wipe(hsPending)
             ritualDone = false
+            ritualChannelStart = nil
             BuildSteps()          -- fresh steps for this match
             if AutoShowOn() then
                 ui.userHidden = false -- auto-show fresh each match
@@ -1387,13 +1453,45 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
         else
             if ui.preview then ShowUI() else HideUI() end
         end
+    elseif event == "UNIT_SPELLCAST_CHANNEL_START" or event == "UNIT_SPELLCAST_CHANNEL_STOP"
+        or event == "UNIT_SPELLCAST_INTERRUPTED" or event == "UNIT_SPELLCAST_FAILED"
+        or event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_STOP" then
+        if arg1 == "player" then
+            local nm = arg3 and GetSpellInfo(arg3) or (UnitChannelInfo("player")) or "?"
+            if event == "UNIT_SPELLCAST_CHANNEL_START" and nm == RITUAL_NAME then
+                ritualChannelStart = GetTime()
+                DPrint("RITUAL channel start")
+            elseif event == "UNIT_SPELLCAST_CHANNEL_STOP" and ritualChannelStart then
+                -- Completion signal: Ritual of Souls has NO combat-log event for the
+                -- Soulwell and the channel ends EARLY when teammates click (nominal
+                -- 60s, real success ~6s), so neither a create event nor the channel
+                -- duration works. What IS reliable: a successful ritual puts the spell
+                -- on its real ~5min cooldown; a cancel/interrupt leaves no cooldown.
+                -- So if Ritual is on a long cooldown that STARTED during this channel,
+                -- the well spawned. (Confirmed via /lp debug: cd=.../300 on success.)
+                CheckRitualCompletion(ritualChannelStart)
+                -- Re-check shortly after in case the cooldown registers a beat late.
+                local started = ritualChannelStart
+                C_Timer.After(0.5, function() CheckRitualCompletion(started) end)
+                ritualChannelStart = nil
+            elseif debugOn and nm == RITUAL_NAME then
+                DPrint(event, "spell=" .. tostring(nm), "ritualDone=" .. tostring(ritualDone))
+            end
+        end
+        Refresh()
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         if arg1 == "player" and arg3 then
             local name = GetSpellInfo(arg3)
-            if name == RITUAL_NAME then
-                ritualDone = true
-                Refresh()
-            elseif name == SUMMON_NAME[1] then
+            if debugOn and (name == RITUAL_NAME or name == SUMMON_NAME[1] or name == SUMMON_NAME[2]
+                or name == SUMMON_NAME[3] or name == CREATE_HS_NAME) then
+                DPrint("SUCCEEDED", "spell=" .. tostring(name))
+            end
+            -- NOTE: Ritual of Souls is a CHANNEL, so SUCCEEDED fires when the
+            -- channel *starts*, not when it finishes. Latching ritualDone here
+            -- meant a cancelled/interrupted ritual still counted as complete.
+            -- Completion is decided on CHANNEL_STOP via the spell's cooldown
+            -- (CheckRitualCompletion), so we do nothing for the ritual here.
+            if name == SUMMON_NAME[1] then
                 if petSummonedMax < 1 then petSummonedMax = 1 end
                 Refresh()
             elseif name == SUMMON_NAME[2] then
@@ -1564,6 +1662,18 @@ SlashCmdList["LOCKPREP"] = function(msg)
         local sz = GetNumGroupMembers() or 0
         local preset = (LockPrepDB and LockPrepDB.preset and PRESETS[LockPrepDB.preset] and PRESETS[LockPrepDB.preset].label) or "Custom"
         print("  group size: |cffffffff" .. sz .. "|r  preset: |cffffffff" .. preset .. "|r  ->  stones: |cffffffff" .. (UseRitual() and "Ritual of Souls" or "conjure pair") .. "|r")
+    elseif cmd == "debug" then
+        if arg == "clear" then
+            LockPrepDB = LockPrepDB or {}; LockPrepDB.log = {}
+            print("|cffcc66ffLockPrep|r: debug log cleared")
+            return
+        end
+        debugOn = not debugOn
+        LockPrepDB = LockPrepDB or {}
+        LockPrepDB.debug = debugOn
+        if debugOn then LockPrepDB.log = {} end   -- fresh capture each time it's turned on
+        print("|cffcc66ffLockPrep|r: debug tracing |cffffffff" .. (debugOn and "ON" or "OFF") .. "|r"
+              .. (debugOn and " - cast Ritual of Souls, cancel it, then complete it, then |cffffffff/reload|r to save the log to disk." or ""))
     elseif cmd == "bind" and arg ~= "" then
         local key = arg:upper()
         SetBindingClick(key, "LockPrepButton")
