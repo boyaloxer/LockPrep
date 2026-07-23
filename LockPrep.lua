@@ -585,8 +585,17 @@ local header = ui:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 header:SetPoint("TOPLEFT", 10, -8)
 header:SetText("LockPrep  |cff888888(right-click: options)|r")
 
+-- Standard Blizzard "X" close button (same template the options panel uses).
+local closeBtn = CreateFrame("Button", nil, ui, "UIPanelCloseButton")
+closeBtn:SetPoint("TOPRIGHT", 2, 2)
+closeBtn:SetScript("OnClick", function()
+    ui.userHidden = true
+    ui.preview = false
+    ui:Hide()
+end)
+
 local countdownFS = ui:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-countdownFS:SetPoint("TOPRIGHT", -10, -6)
+countdownFS:SetPoint("TOPRIGHT", closeBtn, "TOPLEFT", -2, -8)
 countdownFS:SetText("")
 
 -- The big "what to press" line -- this is the whole point of the window.
@@ -686,6 +695,21 @@ function LockPrep_UpdateUI()
         end
     else
         actionFS:SetText("|cff55ff55All set - good luck!|r")
+        -- Auto-close once every step is done. Brief pause so "All set" is readable,
+        -- then hide for the rest of the match (next zone-in / AutoShow can reopen).
+        if #steps > 0 and not ui.autoClosePending then
+            ui.autoClosePending = true
+            C_Timer.After(1.5, function()
+                ui.autoClosePending = false
+                if not ui:IsShown() or #steps == 0 then return end
+                for _, s in ipairs(steps) do
+                    if not s.done() then return end
+                end
+                ui.userHidden = true
+                ui.preview = false
+                ui:Hide()
+            end)
+        end
     end
 
     -- felhunter summon progress bar-as-text (turns green past 90%)
@@ -1443,6 +1467,7 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
             wipe(hsPending)
             ritualDone = false
             ritualChannelStart = nil
+            ui.autoClosePending = false
             BuildSteps()          -- fresh steps for this match
             if AutoShowOn() then
                 ui.userHidden = false -- auto-show fresh each match

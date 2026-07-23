@@ -124,6 +124,13 @@ The **mount dropdown** in options is populated from mount items in your bags.
 
 ## Changelog
 
+### 0.15.7
+
+- **Added:** Close (X) button on the checklist window so you can dismiss it mid-match
+  without using a slash command.
+- **Added:** Checklist auto-closes shortly after the last prep step finishes
+  ("All set - good luck!"), so it gets out of the way once prep is done.
+
 ### 0.15.6
 
 - **Fixed:** Ritual of Souls now advances reliably. Completion is detected from the
