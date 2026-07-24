@@ -568,17 +568,77 @@ end
 -- =====================================================================
 -- UI: checklist overlay
 -- =====================================================================
+-- ---------------------------------------------------------------------
+-- Skin helpers (shared by the overlay + options panel)
+-- ---------------------------------------------------------------------
+local LP_FONT = "Fonts\\FRIZQT__.TTF"
+local WHITE8  = "Interface\\Buttons\\WHITE8X8"
+
+local function LP_FS(parent, size, flags)
+    local fs = parent:CreateFontString(nil, "OVERLAY")
+    fs:SetFont(LP_FONT, size, flags or "")
+    return fs
+end
+
+local function LP_Tex(parent, layer)
+    local t = parent:CreateTexture(nil, layer or "BACKGROUND")
+    t:SetTexture(WHITE8)
+    return t
+end
+
+-- horizontal gradient that works on both the old (SetGradientAlpha) and the
+-- new (SetGradient + CreateColor) texture APIs
+local function LP_Grad(tex, r1, g1, b1, a1, r2, g2, b2, a2)
+    if tex.SetGradient and CreateColor then
+        tex:SetVertexColor(1, 1, 1, 1)
+        tex:SetGradient("HORIZONTAL", CreateColor(r1, g1, b1, a1), CreateColor(r2, g2, b2, a2))
+    elseif tex.SetGradientAlpha then
+        tex:SetVertexColor(1, 1, 1, 1)
+        tex:SetGradientAlpha("HORIZONTAL", r1, g1, b1, a1, r2, g2, b2, a2)
+    else
+        tex:SetVertexColor((r1 + r2) / 2, (g1 + g2) / 2, (b1 + b2) / 2, (a1 + a2) / 2)
+    end
+end
+
+-- flat dark panel, 1px border, hairline sheen under the top edge
+local function LP_SkinPanel(f, br, bg, bb)
+    f:SetBackdrop({ bgFile = WHITE8, edgeFile = WHITE8, edgeSize = 1 })
+    f:SetBackdropColor(0.062, 0.053, 0.096, 0.97)
+    f:SetBackdropBorderColor(br, bg, bb, 1)
+    local sheen = LP_Tex(f, "BORDER")
+    sheen:SetPoint("TOPLEFT", 1, -1); sheen:SetPoint("TOPRIGHT", -1, -1)
+    sheen:SetHeight(1)
+    sheen:SetVertexColor(0.71, 0.55, 0.88, 0.10)
+end
+
+local function LP_Close(parent, onclick)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(18, 18)
+    b:SetPoint("TOPRIGHT", -6, -6)
+    local x = LP_FS(b, 13)
+    x:SetPoint("CENTER", 0, 0); x:SetText("x"); x:SetTextColor(0.42, 0.38, 0.50)
+    b:SetScript("OnEnter", function() x:SetTextColor(0.78, 0.75, 0.87) end)
+    b:SetScript("OnLeave", function() x:SetTextColor(0.42, 0.38, 0.50) end)
+    b:SetScript("OnClick", onclick)
+    return b
+end
+
+-- adds a 30px header strip (purple tint + divider) and returns it
+local function LP_Header(f)
+    local bar = CreateFrame("Frame", nil, f)
+    bar:SetPoint("TOPLEFT", 1, -1); bar:SetPoint("TOPRIGHT", -1, -1)
+    bar:SetHeight(29)
+    local bg = LP_Tex(bar); bg:SetAllPoints(); bg:SetVertexColor(0.48, 0.35, 0.71, 0.07)
+    local div = LP_Tex(bar, "BORDER")
+    div:SetPoint("BOTTOMLEFT"); div:SetPoint("BOTTOMRIGHT"); div:SetHeight(1)
+    div:SetVertexColor(0.48, 0.44, 0.59, 0.18)
+    return bar
+end
+
 local ui = CreateFrame("Frame", "LockPrepFrame", UIParent, "BackdropTemplate")
-ui:SetSize(300, 120)
+ui:SetSize(308, 120)
 ui:SetPoint("CENTER", UIParent, "CENTER", 350, 0)
-ui:SetBackdrop({
-    bgFile   = "Interface\\Buttons\\WHITE8X8",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    edgeSize = 12,
-    insets   = { left = 3, right = 3, top = 3, bottom = 3 },
-})
-ui:SetBackdropColor(0.05, 0.05, 0.07, 0.92)
-ui:SetBackdropBorderColor(0.3, 0.3, 0.35, 1)
+LP_SkinPanel(ui, 0.24, 0.20, 0.33)
 ui:SetMovable(true)
 ui:EnableMouse(true)
 ui:RegisterForDrag("LeftButton")
@@ -592,59 +652,155 @@ ui:SetScript("OnDragStop", function(self)
 end)
 ui:Hide()
 
-local header = ui:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-header:SetPoint("TOPLEFT", 10, -8)
-header:SetText("LockPrep  |cff888888(right-click: options)|r")
+local headerBar = LP_Header(ui)
+do
+    local gem = LP_Tex(headerBar, "ARTWORK")
+    gem:SetSize(7, 7); gem:SetPoint("LEFT", 12, 0)
+    gem:SetVertexColor(0.57, 0.35, 0.85, 1)
+    gem:SetRotation(math.pi / 4)
+    local title = LP_FS(headerBar, 13)
+    title:SetPoint("LEFT", 26, 0); title:SetText("LockPrep")
+    title:SetTextColor(0.83, 0.78, 0.92)
+    local hint = LP_FS(headerBar, 9)
+    hint:SetPoint("LEFT", title, "RIGHT", 7, -1)
+    hint:SetText("right-click: options")
+    hint:SetTextColor(0.40, 0.36, 0.50)
+end
 
--- Standard Blizzard "X" close button (same template the options panel uses).
-local closeBtn = CreateFrame("Button", nil, ui, "UIPanelCloseButton")
-closeBtn:SetPoint("TOPRIGHT", 2, 2)
-closeBtn:SetScript("OnClick", function()
+-- Fade the checklist out (mounting / gates open). Hard-hide when done so it
+-- stays gone for the rest of the match; ShowUI resets alpha for the next one.
+local fadeOut = ui:CreateAnimationGroup()
+do
+    local a = fadeOut:CreateAnimation("Alpha")
+    a:SetFromAlpha(1)
+    a:SetToAlpha(0)
+    a:SetDuration(0.45)
+    a:SetSmoothing("OUT")
+end
+fadeOut:SetScript("OnFinished", function()
+    ui.fading = false
     ui.userHidden = true
     ui.preview = false
     ui:Hide()
+    ui:SetAlpha(1)
 end)
+local function FadeOutChecklist()
+    if ui.fading or not ui:IsShown() then return end
+    ui.fading = true
+    fadeOut:Stop()
+    ui:SetAlpha(1)
+    fadeOut:Play()
+end
+local function DismissChecklist()
+    if fadeOut:IsPlaying() then fadeOut:Stop() end
+    ui.fading = false
+    ui.userHidden = true
+    ui.preview = false
+    ui:SetAlpha(1)
+    ui:Hide()
+end
 
-local countdownFS = ui:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-countdownFS:SetPoint("TOPRIGHT", closeBtn, "TOPLEFT", -2, -8)
-countdownFS:SetText("")
+local closeBtn = LP_Close(ui, DismissChecklist)
 
--- The big "what to press" line -- this is the whole point of the window.
-local actionFS = ui:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-actionFS:SetPoint("TOPLEFT", 10, -26)
-actionFS:SetPoint("RIGHT", ui, "RIGHT", -8, 0)
+-- countdown pill (top right)
+local cdPill = CreateFrame("Frame", nil, headerBar, "BackdropTemplate")
+cdPill:SetSize(42, 18)
+cdPill:SetPoint("RIGHT", headerBar, "RIGHT", -26, 0)
+cdPill:SetBackdrop({ bgFile = WHITE8, edgeFile = WHITE8, edgeSize = 1 })
+cdPill:SetBackdropColor(0, 0, 0, 0.35)
+cdPill:SetBackdropBorderColor(0.35, 0.31, 0.45, 0.6)
+local cdText = LP_FS(cdPill, 12)
+cdText:SetPoint("CENTER", 0, 0)
+cdPill:Hide()
+
+-- "next press" block: label, key chip, big action line
+local actionBlock = CreateFrame("Frame", nil, ui)
+actionBlock:SetPoint("TOPLEFT", headerBar, "BOTTOMLEFT", 0, 0)
+actionBlock:SetPoint("TOPRIGHT", headerBar, "BOTTOMRIGHT", 0, 0)
+actionBlock:SetHeight(44)
+do
+    local bg = LP_Tex(actionBlock)
+    bg:SetAllPoints()
+    LP_Grad(bg, 0.57, 0.35, 0.85, 0.13, 0.57, 0.35, 0.85, 0.0)
+    local div = LP_Tex(actionBlock, "BORDER")
+    div:SetPoint("BOTTOMLEFT"); div:SetPoint("BOTTOMRIGHT"); div:SetHeight(1)
+    div:SetVertexColor(0.48, 0.44, 0.59, 0.14)
+    local lbl = LP_FS(actionBlock, 9)
+    lbl:SetPoint("TOPLEFT", 12, -7)
+    lbl:SetText("NEXT PRESS")
+    lbl:SetTextColor(0.54, 0.49, 0.66)
+end
+local keyChip = CreateFrame("Frame", nil, actionBlock, "BackdropTemplate")
+keyChip:SetSize(24, 16)
+keyChip:SetPoint("TOPLEFT", 12, -20)
+keyChip:SetBackdrop({ bgFile = WHITE8 })
+keyChip:SetBackdropColor(0.66, 0.88, 0.42, 1)
+local keyText = LP_FS(keyChip, 11)
+keyText:SetPoint("CENTER", 0, 0)
+keyText:SetTextColor(0.05, 0.04, 0.08)
+local actionFS = LP_FS(actionBlock, 13)
 actionFS:SetJustifyH("LEFT")
-actionFS:SetText("")
+actionFS:SetWordWrap(true)
 
--- healthstone trade progress ("Stones traded: 1/2")
-local tradeFS = ui:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-tradeFS:SetPoint("TOPLEFT", actionFS, "BOTTOMLEFT", 0, -3)
-tradeFS:SetPoint("RIGHT", ui, "RIGHT", -8, 0)
+-- felhunter cast bar (only visible mid-summon)
+local castBlock = CreateFrame("Frame", nil, ui)
+castBlock:SetPoint("TOPLEFT", actionBlock, "BOTTOMLEFT", 12, -6)
+castBlock:SetPoint("RIGHT", ui, "RIGHT", -12, 0)
+castBlock:SetHeight(1)
+do
+    local nm = LP_FS(castBlock, 11)
+    nm:SetPoint("TOPLEFT", 0, 0)
+    nm:SetText("Summon Felhunter")
+    nm:SetTextColor(0.78, 0.63, 0.35)
+end
+local castPct = LP_FS(castBlock, 11)
+castPct:SetPoint("TOPRIGHT", 0, 0)
+local castBar = CreateFrame("StatusBar", nil, castBlock, "BackdropTemplate")
+castBar:SetPoint("BOTTOMLEFT", 0, 2); castBar:SetPoint("BOTTOMRIGHT", 0, 2)
+castBar:SetHeight(7)
+castBar:SetBackdrop({ bgFile = WHITE8, edgeFile = WHITE8, edgeSize = 1 })
+castBar:SetBackdropColor(0, 0, 0, 0.5)
+castBar:SetBackdropBorderColor(0.35, 0.31, 0.45, 0.5)
+castBar:SetStatusBarTexture(WHITE8)
+castBar:SetMinMaxValues(0, 1)
+castBlock:Hide()
+
+-- healthstone trade progress ("Healthstones traded: 1/2")
+local tradeFS = LP_FS(ui, 11)
+tradeFS:SetPoint("TOPLEFT", castBlock, "BOTTOMLEFT", 0, -5)
+tradeFS:SetPoint("RIGHT", ui, "RIGHT", -12, 0)
 tradeFS:SetJustifyH("LEFT")
 tradeFS:SetText("")
 
--- felhunter summon progress ("Felhunter summon: 87%  SAC NOW")
-local castFS = ui:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-castFS:SetPoint("TOPLEFT", tradeFS, "BOTTOMLEFT", 0, -2)
-castFS:SetPoint("RIGHT", ui, "RIGHT", -8, 0)
-castFS:SetJustifyH("LEFT")
-castFS:SetText("")
-
+-- step rows: mark box + label + NOW/HELD tag, current row gets a purple wash
 local rows = {}
 local function GetRow(i)
     local r = rows[i]
     if r then return r end
-    r = ui:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    r:SetJustifyH("LEFT")
-    r:SetWordWrap(true)
+    r = CreateFrame("Frame", nil, ui)
     -- stack each row under the previous one's actual bottom, so a wrapped
     -- (two-line) label pushes everything below it down instead of overlapping
     if i == 1 then
-        r:SetPoint("TOPLEFT", castFS, "BOTTOMLEFT", 0, -4)
+        r:SetPoint("TOPLEFT", tradeFS, "BOTTOMLEFT", -4, -6)
     else
-        r:SetPoint("TOPLEFT", rows[i - 1], "BOTTOMLEFT", 0, -3)
+        r:SetPoint("TOPLEFT", rows[i - 1], "BOTTOMLEFT", 0, -1)
     end
     r:SetPoint("RIGHT", ui, "RIGHT", -8, 0)
+    r.bg = LP_Tex(r)
+    r.bg:SetAllPoints()
+    r.box = CreateFrame("Frame", nil, r, "BackdropTemplate")
+    r.box:SetSize(13, 13)
+    r.box:SetPoint("TOPLEFT", 5, -3)
+    r.box:SetBackdrop({ bgFile = WHITE8, edgeFile = WHITE8, edgeSize = 1 })
+    r.mark = LP_FS(r.box, 9)
+    r.mark:SetPoint("CENTER", 0.5, 0)
+    r.tag = LP_FS(r, 8)
+    r.tag:SetPoint("TOPRIGHT", -4, -6)
+    r.label = LP_FS(r, 12)
+    r.label:SetPoint("TOPLEFT", 26, -4)
+    r.label:SetPoint("RIGHT", r, "RIGHT", -34, 0)
+    r.label:SetJustifyH("LEFT")
+    r.label:SetWordWrap(true)
     rows[i] = r
     return r
 end
@@ -655,34 +811,59 @@ end
 
 function LockPrep_UpdateUI()
     if not ui:IsShown() then return end
-    -- countdown
+    -- countdown pill
     local t = TimeLeft()
     if t then
-        countdownFS:SetText(string.format("0:%02d", math.floor(t + 0.5)))
-        countdownFS:SetTextColor(1, t <= 5 and 0.4 or 0.82, t <= 5 and 0.4 or 0)
+        cdText:SetText(string.format("0:%02d", math.floor(t + 0.5)))
+        if t <= 5 then cdText:SetTextColor(1, 0.48, 0.42)
+        else cdText:SetTextColor(0.94, 0.82, 0.38) end
+        cdPill:SetWidth(math.max(38, cdText:GetStringWidth() + 14))
+        cdPill:Show()
     else
-        countdownFS:SetText("")
+        cdPill:Hide()
     end
 
+    -- step rows
     local shown, curLabel, anyIncomplete = 0, nil, false
+    local rowsH = 0
     for i, s in ipairs(steps) do
         local row = GetRow(i)
         local done = s.done()
         local ready = (not s.ready) or s.ready()
         if not done then anyIncomplete = true end
         if s.id == currentId then curLabel = s.label end
-        local mark, r, g, b
+        row.label:SetText(s.label)
+        row.tag:SetText("")
         if done then
-            mark, r, g, b = "|cff55ff55v|r ", 0.5, 0.5, 0.5
+            LP_Grad(row.bg, 0, 0, 0, 0, 0, 0, 0, 0)
+            row.box:SetBackdropColor(0.18, 0.38, 0.18, 0.5)
+            row.box:SetBackdropBorderColor(0.29, 0.48, 0.29, 1)
+            row.mark:SetText("v"); row.mark:SetTextColor(0.48, 0.82, 0.48)
+            row.label:SetTextColor(0.37, 0.35, 0.46)
         elseif s.id == currentId then
-            mark, r, g, b = "|cffffff00> |r", 1, 1, 0.3
+            LP_Grad(row.bg, 0.57, 0.35, 0.85, 0.22, 0.57, 0.35, 0.85, 0.02)
+            row.box:SetBackdropColor(0.57, 0.35, 0.85, 0.35)
+            row.box:SetBackdropBorderColor(0.57, 0.35, 0.85, 1)
+            row.mark:SetText(">"); row.mark:SetTextColor(0.83, 0.71, 0.96)
+            row.label:SetTextColor(0.94, 0.92, 0.97)
+            row.tag:SetText("NOW"); row.tag:SetTextColor(0.71, 0.55, 0.88)
         elseif not ready then
-            mark, r, g, b = "|cff888888. |r", 0.55, 0.55, 0.6
+            LP_Grad(row.bg, 0, 0, 0, 0, 0, 0, 0, 0)
+            row.box:SetBackdropColor(0, 0, 0, 0.25)
+            row.box:SetBackdropBorderColor(0.23, 0.20, 0.31, 1)
+            row.mark:SetText("")
+            row.label:SetTextColor(0.37, 0.35, 0.46)
+            row.tag:SetText("HELD"); row.tag:SetTextColor(0.29, 0.26, 0.37)
         else
-            mark, r, g, b = "|cffcccccc. |r", 0.8, 0.8, 0.8
+            LP_Grad(row.bg, 0, 0, 0, 0, 0, 0, 0, 0)
+            row.box:SetBackdropColor(0, 0, 0, 0.3)
+            row.box:SetBackdropBorderColor(0.29, 0.26, 0.37, 1)
+            row.mark:SetText("")
+            row.label:SetTextColor(0.66, 0.61, 0.75)
         end
-        row:SetText(mark .. s.label)
-        row:SetTextColor(r, g, b)
+        local h = math.max(19, (row.label:GetStringHeight() or 12) + 8)
+        row:SetHeight(h)
+        rowsH = rowsH + h + 1
         row:Show()
         shown = i
     end
@@ -690,48 +871,70 @@ function LockPrep_UpdateUI()
 
     -- action line: tells a new user exactly what to do
     local key = BoundKey()
+    actionFS:ClearAllPoints()
+    if key then
+        keyText:SetText(key)
+        keyChip:SetWidth(math.max(20, keyText:GetStringWidth() + 10))
+        keyChip:Show()
+        actionFS:SetPoint("TOPLEFT", keyChip, "TOPRIGHT", 8, 0)
+        actionFS:SetPoint("RIGHT", ui, "RIGHT", -10, 0)
+    else
+        keyChip:Hide()
+        actionFS:SetPoint("TOPLEFT", actionBlock, "TOPLEFT", 12, -20)
+        actionFS:SetPoint("RIGHT", ui, "RIGHT", -10, 0)
+    end
+    actionFS:SetTextColor(0.94, 0.92, 0.97)
     if not key then
-        actionFS:SetText("|cffff6666No key bound|r  -  type  |cffffffff/lp bind <KEY>|r")
+        actionFS:SetText("|cffff6666No key bound|r - type |cffffffff/lp bind <KEY>|r")
     elseif felAction then
-        actionFS:SetText("Press |cff00ff00" .. key .. "|r: |cffff5555" .. felAction .. "|r")
+        actionFS:SetText("|cffff5555" .. felAction .. "|r")
     elseif curLabel then
-        actionFS:SetText("Press |cff00ff00" .. key .. "|r: " .. curLabel)
+        actionFS:SetText(curLabel)
     elseif anyIncomplete then
-        local t = TimeLeft()
+        local tl = TimeLeft()
         local gate = EndPrepSecs()
-        if t and gate > 0 and t > gate then
+        if tl and gate > 0 and tl > gate then
             actionFS:SetText(string.format("|cffaaaaaaHolding the finish until %ds left (%ds)|r",
-                gate, math.floor(t + 0.5)))
+                gate, math.floor(tl + 0.5)))
         else
             actionFS:SetText("|cffaaaaaaWaiting for the countdown...|r")
         end
     else
         actionFS:SetText("|cff55ff55All set - good luck!|r")
-        -- Auto-close once every step is done. Brief pause so "All set" is readable,
-        -- then hide for the rest of the match (next zone-in / AutoShow can reopen).
-        if #steps > 0 and not ui.autoClosePending then
-            ui.autoClosePending = true
-            C_Timer.After(1.5, function()
-                ui.autoClosePending = false
-                if not ui:IsShown() or #steps == 0 then return end
-                for _, s in ipairs(steps) do
-                    if not s.done() then return end
-                end
-                ui.userHidden = true
-                ui.preview = false
-                ui:Hide()
-            end)
+    end
+
+    -- Dismiss once prep is effectively over: as soon as you start mounting
+    -- (cast or already mounted), or the gates have opened. Arena/BG only so
+    -- /lp test outside a match isn't killed just because you're on a horse.
+    if not ui.fading and InPrepZone() then
+        local casting = UnitCastingInfo("player")
+        local mounting = IsMounted() or (casting and casting == MountName())
+        local gatesOpen = (TimeLeft() ~= nil and TimeLeft() <= 0)
+        if mounting or gatesOpen then
+            FadeOutChecklist()
         end
     end
 
-    -- felhunter summon progress bar-as-text (turns green past 90%)
+    actionBlock:SetHeight(20 + math.max(16, actionFS:GetStringHeight() or 13) + 9)
+
+    -- felhunter summon progress bar (fills orange, flips green at 90%)
     if felCastFrac then
         local pct = math.floor(felCastFrac * 100 + 0.5)
-        local col = (felCastFrac >= 0.90) and "|cff55ff55" or "|cffffcc44"
-        local tag = (felCastFrac >= 0.90) and "  <SAC!>" or ""
-        castFS:SetText(col .. "Felhunter summon: " .. pct .. "%" .. tag .. "|r")
+        castBar:SetValue(felCastFrac)
+        if felCastFrac >= 0.90 then
+            castBar:SetStatusBarColor(0.42, 0.82, 0.42)
+            castPct:SetText(pct .. "%  SAC NOW")
+            castPct:SetTextColor(1, 0.48, 0.42)
+        else
+            castBar:SetStatusBarColor(0.88, 0.63, 0.32)
+            castPct:SetText(pct .. "%")
+            castPct:SetTextColor(0.94, 0.82, 0.38)
+        end
+        castBlock:SetHeight(26)
+        castBlock:Show()
     else
-        castFS:SetText("")
+        castBlock:SetHeight(1)
+        castBlock:Hide()
     end
 
     -- trade progress (2s only; in 3s/5s people grab from the soulwell)
@@ -748,10 +951,9 @@ function LockPrep_UpdateUI()
     end
 
     -- size the window to the real (possibly wrapped) content height
-    local h = 8 + 16 + 4 + (actionFS:GetStringHeight() or 16) + 3 + (tradeFS:GetStringHeight() or 0)
-        + 2 + (castFS:GetStringHeight() or 0) + 4
-    for i = 1, shown do h = h + (rows[i]:GetStringHeight() or 12) + 3 end
-    ui:SetHeight(h + 8)
+    local h = 29 + actionBlock:GetHeight() + 6 + castBlock:GetHeight() + 5
+        + (tradeFS:GetStringHeight() or 0) + 6 + rowsH + 8
+    ui:SetHeight(h + 2)
 end
 
 -- =====================================================================
@@ -765,9 +967,17 @@ local function ApplyPos()
 end
 
 local function ShowUI()
+    if fadeOut:IsPlaying() then fadeOut:Stop() end
+    ui.fading = false
+    ui:SetAlpha(1)
     BuildSteps(); ApplyPos(); Refresh(); ui:Show()
 end
-local function HideUI() ui:Hide() end
+local function HideUI()
+    if fadeOut:IsPlaying() then fadeOut:Stop() end
+    ui.fading = false
+    ui:SetAlpha(1)
+    ui:Hide()
+end
 
 -- =====================================================================
 -- Trade auto-fill: drop your healthstones into the trade window.
@@ -948,50 +1158,6 @@ end)
 -- =====================================================================
 -- Options panel (checkboxes to include/exclude step groups)
 -- =====================================================================
-local opt = CreateFrame("Frame", "LockPrepOptions", UIParent, "BackdropTemplate")
-opt:SetSize(300, 60 + #GROUPS * 22 + 330)
-opt:SetPoint("CENTER")
-opt:SetBackdrop({
-    bgFile   = "Interface\\Buttons\\WHITE8X8",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    edgeSize = 12,
-    insets   = { left = 3, right = 3, top = 3, bottom = 3 },
-})
-opt:SetBackdropColor(0.05, 0.05, 0.07, 0.95)
-opt:SetBackdropBorderColor(0.4, 0.3, 0.5, 1)
-opt:SetMovable(true); opt:EnableMouse(true); opt:RegisterForDrag("LeftButton")
-opt:SetScript("OnDragStart", opt.StartMoving)
-opt:SetScript("OnDragStop", opt.StopMovingOrSizing)
-opt:SetFrameStrata("DIALOG")
-opt:Hide()
-
-local otitle = opt:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-otitle:SetPoint("TOPLEFT", 12, -10)
-otitle:SetText("LockPrep - steps to include")
-
-local oclose = CreateFrame("Button", nil, opt, "UIPanelCloseButton")
-oclose:SetPoint("TOPRIGHT", 2, 2)
-
-local groupChecks = {}  -- key -> checkbox, so presets can refresh their state
-for i, g in ipairs(GROUPS) do
-    local cb = CreateFrame("CheckButton", nil, opt, "UICheckButtonTemplate")
-    cb:SetSize(22, 22)
-    cb:SetPoint("TOPLEFT", 12, -34 - (i - 1) * 22)
-    local lbl = cb:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    lbl:SetPoint("LEFT", cb, "RIGHT", 2, 0)
-    lbl:SetText(g.label)
-    cb:SetScript("OnShow", function(self) self:SetChecked(Enabled(g.key)) end)
-    cb:SetScript("OnClick", function(self)
-        LockPrepDB = LockPrepDB or {}
-        LockPrepDB.disabled = LockPrepDB.disabled or {}
-        LockPrepDB.disabled[g.key] = (not self:GetChecked()) or nil
-        LockPrepDB.preset = "custom"  -- hand-edited => "Custom"
-        if LockPrepPresetDropDown then UIDropDownMenu_SetText(LockPrepPresetDropDown, "Custom") end
-        BuildSteps(); Refresh()
-    end)
-    groupChecks[g.key] = cb
-end
-
 -- Presets: one click sets a whole configuration of checkboxes.
 -- Major Healthstone + Master Spellstone are left OFF in every preset (personal
 -- preference); tick them yourself if you use them.
@@ -1005,8 +1171,12 @@ local PRESETS = {
 }
 local PRESET_ORDER = { "2s", "3s5s", "bg", "custom" }
 
+local groupChecks = {}   -- key -> check row, so presets can refresh their state
+local allChecks = {}     -- every check row (refreshed on panel show)
+local UpdatePresetSeg    -- fwd: highlights the active preset segment
+
 local function RefreshGroupChecks()
-    for key, cb in pairs(groupChecks) do cb:SetChecked(Enabled(key)) end
+    for _, row in pairs(groupChecks) do row:Refresh() end
 end
 
 local function ApplyPreset(key)
@@ -1019,53 +1189,200 @@ local function ApplyPreset(key)
     end
     LockPrepDB.preset = key
     RefreshGroupChecks()
+    if UpdatePresetSeg then UpdatePresetSeg() end
     BuildSteps(); Refresh()
 end
 
--- extras section: auto-trade toggle
-local extraY = -34 - #GROUPS * 22 - 4
-local sep = opt:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-sep:SetPoint("TOPLEFT", 12, extraY)
-sep:SetText("|cff888888Extras|r")
-local atcb = CreateFrame("CheckButton", nil, opt, "UICheckButtonTemplate")
-atcb:SetSize(22, 22)
-atcb:SetPoint("TOPLEFT", 12, extraY - 16)
-local atlbl = atcb:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-atlbl:SetPoint("LEFT", atcb, "RIGHT", 2, 0)
-atlbl:SetText("Auto-fill healthstones on trade (arena)")
-atcb:SetScript("OnShow", function(self) self:SetChecked(AutoTradeOn()) end)
-atcb:SetScript("OnClick", function(self)
-    LockPrepDB = LockPrepDB or {}
-    LockPrepDB.autoTrade = self:GetChecked() and true or false
-end)
+local opt = CreateFrame("Frame", "LockPrepOptions", UIParent, "BackdropTemplate")
+opt:SetSize(340, 400)   -- height is set after layout below
+opt:SetPoint("CENTER")
+LP_SkinPanel(opt, 0.29, 0.24, 0.41)
+opt:SetMovable(true); opt:EnableMouse(true); opt:RegisterForDrag("LeftButton")
+opt:SetScript("OnDragStart", opt.StartMoving)
+opt:SetScript("OnDragStop", opt.StopMovingOrSizing)
+opt:SetFrameStrata("DIALOG")
+opt:Hide()
 
-local ascb = CreateFrame("CheckButton", nil, opt, "UICheckButtonTemplate")
-ascb:SetSize(22, 22)
-ascb:SetPoint("TOPLEFT", 12, extraY - 38)
-local aslbl = ascb:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-aslbl:SetPoint("LEFT", ascb, "RIGHT", 2, 0)
-aslbl:SetText("Auto-show window when entering an arena")
-ascb:SetScript("OnShow", function(self) self:SetChecked(AutoShowOn()) end)
-ascb:SetScript("OnClick", function(self)
-    LockPrepDB = LockPrepDB or {}
-    LockPrepDB.autoShow = self:GetChecked() and true or false
-end)
+do
+    local bar = LP_Header(opt)
+    local otitle = LP_FS(bar, 13)
+    otitle:SetPoint("LEFT", 12, 0)
+    otitle:SetText("LockPrep |cff7a6f96- Options|r")
+    otitle:SetTextColor(0.83, 0.78, 0.92)
+end
+LP_Close(opt, function() opt:Hide() end)
 
-local dbgcb = CreateFrame("CheckButton", nil, opt, "UICheckButtonTemplate")
-dbgcb:SetSize(22, 22)
-dbgcb:SetPoint("TOPLEFT", 12, extraY - 60)
-local dbglbl = dbgcb:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-dbglbl:SetPoint("LEFT", dbgcb, "RIGHT", 2, 0)
-dbglbl:SetText("Debug logging (traces casts to chat)")
-dbgcb:SetScript("OnShow", function(self) self:SetChecked(debugOn) end)
-dbgcb:SetScript("OnClick", function(self)
-    debugOn = self:GetChecked() and true or false
-    LockPrepDB = LockPrepDB or {}
-    LockPrepDB.debug = debugOn
-    if debugOn then LockPrepDB.log = {} end   -- fresh capture each time it's turned on
-    print("|cffcc66ffLockPrep|r: debug tracing |cffffffff" .. (debugOn and "ON" or "OFF") .. "|r"
-          .. (debugOn and " - do the ritual test, then |cffffffff/reload|r to save the log to disk." or ""))
-end)
+local oy = -40   -- running layout cursor from the panel top
+
+local function SectionHeader(text)
+    local fs = LP_FS(opt, 9)
+    fs:SetPoint("TOPLEFT", 14, oy)
+    fs:SetText(text)
+    fs:SetTextColor(0.54, 0.49, 0.66)
+    local div = LP_Tex(opt, "BORDER")
+    div:SetPoint("TOPLEFT", 14, oy - 12)
+    div:SetPoint("RIGHT", opt, "RIGHT", -14, 0)
+    div:SetHeight(1)
+    div:SetVertexColor(0.48, 0.44, 0.59, 0.14)
+    oy = oy - 19
+end
+
+-- custom checkbox row: box + label + right-aligned note, hover wash
+local function MakeCheck(label, note, get, set)
+    local row = CreateFrame("Button", nil, opt)
+    row:SetPoint("TOPLEFT", 12, oy)
+    row:SetPoint("RIGHT", opt, "RIGHT", -12, 0)
+    row:SetHeight(19)
+    local hl = LP_Tex(row)
+    hl:SetAllPoints(); hl:SetVertexColor(0.57, 0.35, 0.85, 0.08); hl:Hide()
+    local box = CreateFrame("Frame", nil, row, "BackdropTemplate")
+    box:SetSize(13, 13); box:SetPoint("LEFT", 3, 0)
+    box:SetBackdrop({ bgFile = WHITE8, edgeFile = WHITE8, edgeSize = 1 })
+    local mark = LP_FS(box, 9)
+    mark:SetPoint("CENTER", 0.5, 0); mark:SetText("v")
+    local lbl = LP_FS(row, 12)
+    lbl:SetPoint("LEFT", box, "RIGHT", 8, 0); lbl:SetText(label)
+    if note and note ~= "" then
+        local nfs = LP_FS(row, 10)
+        nfs:SetPoint("RIGHT", -4, 0); nfs:SetText(note)
+        nfs:SetTextColor(0.36, 0.33, 0.45)
+    end
+    function row:Refresh()
+        if get() then
+            box:SetBackdropColor(0.58, 0.37, 0.86, 1)
+            box:SetBackdropBorderColor(0.66, 0.44, 0.92, 1)
+            mark:SetTextColor(0.05, 0.04, 0.08); mark:Show()
+            lbl:SetTextColor(0.91, 0.87, 0.96)
+        else
+            box:SetBackdropColor(0, 0, 0, 0.35)
+            box:SetBackdropBorderColor(0.29, 0.26, 0.37, 1)
+            mark:Hide()
+            lbl:SetTextColor(0.48, 0.44, 0.56)
+        end
+    end
+    row:SetScript("OnEnter", function() hl:Show() end)
+    row:SetScript("OnLeave", function() hl:Hide() end)
+    row:SetScript("OnClick", function() set(not get()); row:Refresh() end)
+    row:Refresh()
+    allChecks[#allChecks + 1] = row
+    oy = oy - 20
+    return row
+end
+
+-- preset segmented control
+do
+    local lbl = LP_FS(opt, 9)
+    lbl:SetPoint("TOPLEFT", 14, oy)
+    lbl:SetText("PRESET")
+    lbl:SetTextColor(0.54, 0.49, 0.66)
+end
+oy = oy - 14
+local segTrack = CreateFrame("Frame", nil, opt, "BackdropTemplate")
+segTrack:SetPoint("TOPLEFT", 14, oy)
+segTrack:SetPoint("RIGHT", opt, "RIGHT", -14, 0)
+segTrack:SetHeight(22)
+segTrack:SetBackdrop({ bgFile = WHITE8, edgeFile = WHITE8, edgeSize = 1 })
+segTrack:SetBackdropColor(0, 0, 0, 0.4)
+segTrack:SetBackdropBorderColor(0.29, 0.26, 0.37, 1)
+local segButtons = {}
+for i, key in ipairs(PRESET_ORDER) do
+    local b = CreateFrame("Button", nil, segTrack)
+    b:SetSize(76, 18)
+    b:SetPoint("LEFT", 2 + (i - 1) * 77, 0)
+    b.bg = LP_Tex(b)
+    b.bg:SetAllPoints(); b.bg:SetVertexColor(0.42, 0.27, 0.66, 1); b.bg:Hide()
+    b.txt = LP_FS(b, 11)
+    b.txt:SetPoint("CENTER", 0, 0); b.txt:SetText(PRESETS[key].label)
+    b:SetScript("OnClick", function() ApplyPreset(key) end)
+    b:SetScript("OnEnter", function()
+        if ((LockPrepDB and LockPrepDB.preset) or "custom") ~= key then
+            b.txt:SetTextColor(0.83, 0.78, 0.92)
+        end
+    end)
+    b:SetScript("OnLeave", function() UpdatePresetSeg() end)
+    segButtons[key] = b
+end
+UpdatePresetSeg = function()
+    local cur = (LockPrepDB and LockPrepDB.preset) or "custom"
+    for key, b in pairs(segButtons) do
+        if key == cur then
+            b.bg:Show(); b.txt:SetTextColor(0.94, 0.92, 0.97)
+        else
+            b.bg:Hide(); b.txt:SetTextColor(0.48, 0.44, 0.56)
+        end
+    end
+end
+oy = oy - 32
+
+-- step-group checkboxes, grouped into sections (labels come from GROUPS; a
+-- trailing "(...)" qualifier becomes the right-aligned note)
+local GROUP_SECTIONS = {
+    { title = "STONES", keys = { "hsmajor", "hsmaster", "ritual", "spellstone" } },
+    { title = "BUFFS",  keys = { "imp", "felarmor", "fireshield", "unending", "detectinvis" } },
+    { title = "FINISH", keys = { "voidwalker", "felhunter", "sacrifice", "soullink", "shadowward", "taintedblood", "mount" } },
+}
+local GROUP_LABEL, GROUP_NOTE = {}, {}
+for _, g in ipairs(GROUPS) do
+    local base, tag = g.label:match("^(.-)%s*%((.-)%)$")
+    GROUP_LABEL[g.key] = base or g.label
+    GROUP_NOTE[g.key] = tag
+end
+-- catch-all: any GROUPS key not in a section lands in FINISH so a new step
+-- group can never silently lose its checkbox
+do
+    local placed = {}
+    for _, sec in ipairs(GROUP_SECTIONS) do
+        for _, k in ipairs(sec.keys) do placed[k] = true end
+    end
+    for _, g in ipairs(GROUPS) do
+        if not placed[g.key] then
+            table.insert(GROUP_SECTIONS[#GROUP_SECTIONS].keys, g.key)
+        end
+    end
+end
+for _, sec in ipairs(GROUP_SECTIONS) do
+    SectionHeader(sec.title)
+    for _, key in ipairs(sec.keys) do
+        local k = key
+        groupChecks[k] = MakeCheck(GROUP_LABEL[k] or k, GROUP_NOTE[k],
+            function() return Enabled(k) end,
+            function(v)
+                LockPrepDB = LockPrepDB or {}
+                LockPrepDB.disabled = LockPrepDB.disabled or {}
+                LockPrepDB.disabled[k] = (not v) or nil
+                LockPrepDB.preset = "custom"  -- hand-edited => "Custom"
+                UpdatePresetSeg()
+                BuildSteps(); Refresh()
+            end)
+    end
+    oy = oy - 8
+end
+
+-- extras
+SectionHeader("EXTRAS")
+MakeCheck("Auto-fill healthstones on trade", "arena",
+    function() return AutoTradeOn() end,
+    function(v)
+        LockPrepDB = LockPrepDB or {}
+        LockPrepDB.autoTrade = v and true or false
+    end)
+MakeCheck("Auto-show window in arena", nil,
+    function() return AutoShowOn() end,
+    function(v)
+        LockPrepDB = LockPrepDB or {}
+        LockPrepDB.autoShow = v and true or false
+    end)
+MakeCheck("Debug logging", "traces to chat",
+    function() return debugOn end,
+    function(v)
+        debugOn = v and true or false
+        LockPrepDB = LockPrepDB or {}
+        LockPrepDB.debug = debugOn
+        if debugOn then LockPrepDB.log = {} end   -- fresh capture each time it's turned on
+        print("|cffcc66ffLockPrep|r: debug tracing |cffffffff" .. (debugOn and "ON" or "OFF") .. "|r"
+              .. (debugOn and " - do the ritual test, then |cffffffff/reload|r to save the log to disk." or ""))
+    end)
+oy = oy - 10
 
 -- Finish time-gate slider: when Felhunter + the rest of the end sequence unlock.
 -- Default 12s (same as before); 0 = no gate. Existing installs keep 12 until changed.
@@ -1074,8 +1391,8 @@ local function EndPrepSliderLabel(v)
     return "Finish unlock: " .. v .. "s left on the countdown"
 end
 local epslider = CreateFrame("Slider", "LockPrepEndPrepSlider", opt, "OptionsSliderTemplate")
-epslider:SetPoint("TOPLEFT", 18, extraY - 100)
-epslider:SetWidth(258)
+epslider:SetPoint("TOPLEFT", 20, oy - 16)
+epslider:SetWidth(296)
 epslider:SetMinMaxValues(END_PREP_MIN, END_PREP_MAX)
 epslider:SetValueStep(1)
 epslider:SetObeyStepOnDrag(true)
@@ -1100,44 +1417,18 @@ epslider:SetScript("OnShow", function(self)
         _G["LockPrepEndPrepSliderText"]:SetText(EndPrepSliderLabel(EndPrepSecs()))
     end
 end)
-
--- Presets dropdown: pick 2s / 3s-5s / BGs and it checks/unchecks the right boxes
-local function PresetText()
-    local key = LockPrepDB and LockPrepDB.preset
-    local p = key and PRESETS[key]
-    return p and p.label or "Custom"
-end
-
-local pslbl = opt:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-pslbl:SetPoint("TOPLEFT", 16, extraY - 148)
-pslbl:SetText("Preset:")
-
--- dropdown sits below its label (labels get cut off if placed beside it)
-local psdd = CreateFrame("Frame", "LockPrepPresetDropDown", opt, "UIDropDownMenuTemplate")
-psdd:SetPoint("TOPLEFT", 0, extraY - 166)
-UIDropDownMenu_SetWidth(psdd, 200)
-UIDropDownMenu_Initialize(psdd, function(self, level)
-    for _, key in ipairs(PRESET_ORDER) do
-        local info = UIDropDownMenu_CreateInfo()
-        info.text = PRESETS[key].label
-        info.checked = ((LockPrepDB and LockPrepDB.preset) == key)
-        info.func = function()
-            ApplyPreset(key)
-            UIDropDownMenu_SetText(psdd, PresetText())
-        end
-        UIDropDownMenu_AddButton(info, level)
-    end
-end)
-psdd:SetScript("OnShow", function() UIDropDownMenu_SetText(psdd, PresetText()) end)
+oy = oy - 60
 
 -- mount selector: pick from your learned mounts (or /lp mount <name>)
-local mlbl = opt:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-mlbl:SetPoint("TOPLEFT", 16, extraY - 208)
-mlbl:SetText("Gate mount:")
-
+do
+    local lbl = LP_FS(opt, 9)
+    lbl:SetPoint("TOPLEFT", 14, oy)
+    lbl:SetText("GATE MOUNT")
+    lbl:SetTextColor(0.54, 0.49, 0.66)
+end
 local mdd = CreateFrame("Frame", "LockPrepMountDropDown", opt, "UIDropDownMenuTemplate")
-mdd:SetPoint("TOPLEFT", 0, extraY - 226)
-UIDropDownMenu_SetWidth(mdd, 200)
+mdd:SetPoint("TOPLEFT", -2, oy - 12)
+UIDropDownMenu_SetWidth(mdd, 280)
 
 local function SetMount(name)
     LockPrepDB = LockPrepDB or {}
@@ -1233,15 +1524,19 @@ UIDropDownMenu_Initialize(mdd, function(self, level)
     end
 end)
 mdd:SetScript("OnShow", function() UIDropDownMenu_SetText(mdd, MountName()) end)
+oy = oy - 54
 
--- keybind: laid out like the Preset / Gate mount controls (label, then a box)
-local kblbl = opt:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-kblbl:SetPoint("TOPLEFT", 16, extraY - 268)
-kblbl:SetText("Keybind:")
-
-local kbhint = opt:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-kbhint:SetPoint("LEFT", kblbl, "RIGHT", 6, 0)
-kbhint:SetText("click button, press key you want to use")
+-- keybind: label, hint, then a listening button
+do
+    local lbl = LP_FS(opt, 9)
+    lbl:SetPoint("TOPLEFT", 14, oy)
+    lbl:SetText("KEYBIND")
+    lbl:SetTextColor(0.54, 0.49, 0.66)
+    local h = LP_FS(opt, 10)
+    h:SetPoint("LEFT", lbl, "RIGHT", 8, 0)
+    h:SetText("click the button, then press the key you want")
+    h:SetTextColor(0.36, 0.33, 0.45)
+end
 
 local keyRows = {}
 
@@ -1322,7 +1617,7 @@ local function MakeKeyRow(labelText, buttonName, yoff)
     btn:SetSize(200, 24)
     btn:SetPoint("TOPLEFT", 16, yoff)
     local nt = btn:GetNormalTexture()
-    if nt then nt:SetVertexColor(0.85, 0.3, 0.3) end   -- red tint, keeps the button border/texture
+    if nt then nt:SetVertexColor(0.62, 0.45, 0.85) end   -- purple tint, keeps the button border/texture
     local row = {
         label  = labelText,
         button = buttonName,
@@ -1336,9 +1631,15 @@ local function MakeKeyRow(labelText, buttonName, yoff)
     return row
 end
 
-MakeKeyRow("the next-step button", "LockPrepButton", extraY - 286)
+MakeKeyRow("the next-step button", "LockPrepButton", oy - 16)
+oy = oy - 44
 
-opt:HookScript("OnShow", RefreshKeyButtons)
+opt:SetHeight(-oy + 12)
+opt:HookScript("OnShow", function()
+    RefreshKeyButtons()
+    UpdatePresetSeg()
+    for _, r in ipairs(allChecks) do r:Refresh() end
+end)
 
 local function ToggleOptions()
     if opt:IsShown() then opt:Hide() else opt:Show() end
@@ -1513,7 +1814,7 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
             wipe(hsPending)
             ritualDone = false
             ritualChannelStart = nil
-            ui.autoClosePending = false
+            ui.fading = false
             BuildSteps()          -- fresh steps for this match
             if AutoShowOn() then
                 ui.userHidden = false -- auto-show fresh each match

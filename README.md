@@ -124,6 +124,13 @@ The **mount dropdown** in options is populated from mount items in your bags.
 
 ## Changelog
 
+### 0.15.9
+
+- **Changed:** Restyled the checklist and options UI (dark purple theme, countdown
+  pill, key chip, felhunter cast bar, clearer step rows).
+- **Changed:** Checklist now fades out when you start mounting or when the gates
+  open, instead of lingering on "All set" after prep finishes.
+
 ### 0.15.8
 
 - **Added:** Options slider to set when the finish sequence unlocks (Felhunter
