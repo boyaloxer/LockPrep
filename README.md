@@ -124,6 +124,12 @@ The **mount dropdown** in options is populated from mount items in your bags.
 
 ## Changelog
 
+### 0.15.8
+
+- **Added:** Options slider to set when the finish sequence unlocks (Felhunter
+  through mount). Default stays 12 seconds left on the countdown; range is 0-30,
+  and 0 disables the time gate entirely.
+
 ### 0.15.7
 
 - **Added:** Close (X) button on the checklist window so you can dismiss it mid-match

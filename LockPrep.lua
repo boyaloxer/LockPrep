@@ -201,15 +201,26 @@ local function TimeLeft()
 end
 
 -- Soft time-gate for the time-sensitive finish (Felhunter + sac + Soul Link +
--- Shadow Ward + Tainted Blood + mount). Holds them until <= END_PREP_SECS left
--- so mashing early doesn't blow the fresh-shield/short-duration stuff. If no
+-- Shadow Ward + Tainted Blood + mount). Holds them until <= EndPrepSecs() left
+-- so mashing early doesn't blow the fresh-shield/short-duration stuff. Tunable
+-- via the options slider (default 12). 0 disables the gate entirely. If no
 -- countdown has been detected yet (gateAt nil) we allow it - never lock the user
 -- out over a missing timer; order still applies via each step's own checks.
-local END_PREP_SECS = 12
+local END_PREP_DEFAULT = 12
+local END_PREP_MIN, END_PREP_MAX = 0, 30
+local function EndPrepSecs()
+    local v = LockPrepDB and LockPrepDB.endPrepSecs
+    if type(v) ~= "number" then return END_PREP_DEFAULT end
+    if v < END_PREP_MIN then return END_PREP_MIN end
+    if v > END_PREP_MAX then return END_PREP_MAX end
+    return math.floor(v + 0.5)
+end
 local function EndPrepReady()
+    local secs = EndPrepSecs()
+    if secs <= 0 then return true end   -- slider at 0 = no time gate
     local t = TimeLeft()
     if t == nil then return true end
-    return t <= END_PREP_SECS
+    return t <= secs
 end
 local function InArena()
     local _, itype = IsInInstance()
@@ -687,9 +698,10 @@ function LockPrep_UpdateUI()
         actionFS:SetText("Press |cff00ff00" .. key .. "|r: " .. curLabel)
     elseif anyIncomplete then
         local t = TimeLeft()
-        if t and t > END_PREP_SECS then
+        local gate = EndPrepSecs()
+        if t and gate > 0 and t > gate then
             actionFS:SetText(string.format("|cffaaaaaaHolding the finish until %ds left (%ds)|r",
-                END_PREP_SECS, math.floor(t + 0.5)))
+                gate, math.floor(t + 0.5)))
         else
             actionFS:SetText("|cffaaaaaaWaiting for the countdown...|r")
         end
@@ -937,7 +949,7 @@ end)
 -- Options panel (checkboxes to include/exclude step groups)
 -- =====================================================================
 local opt = CreateFrame("Frame", "LockPrepOptions", UIParent, "BackdropTemplate")
-opt:SetSize(300, 60 + #GROUPS * 22 + 270)
+opt:SetSize(300, 60 + #GROUPS * 22 + 330)
 opt:SetPoint("CENTER")
 opt:SetBackdrop({
     bgFile   = "Interface\\Buttons\\WHITE8X8",
@@ -1055,6 +1067,40 @@ dbgcb:SetScript("OnClick", function(self)
           .. (debugOn and " - do the ritual test, then |cffffffff/reload|r to save the log to disk." or ""))
 end)
 
+-- Finish time-gate slider: when Felhunter + the rest of the end sequence unlock.
+-- Default 12s (same as before); 0 = no gate. Existing installs keep 12 until changed.
+local function EndPrepSliderLabel(v)
+    if v <= 0 then return "Finish unlock: anytime (no gate)" end
+    return "Finish unlock: " .. v .. "s left on the countdown"
+end
+local epslider = CreateFrame("Slider", "LockPrepEndPrepSlider", opt, "OptionsSliderTemplate")
+epslider:SetPoint("TOPLEFT", 18, extraY - 100)
+epslider:SetWidth(258)
+epslider:SetMinMaxValues(END_PREP_MIN, END_PREP_MAX)
+epslider:SetValueStep(1)
+epslider:SetObeyStepOnDrag(true)
+if _G["LockPrepEndPrepSliderLow"] then _G["LockPrepEndPrepSliderLow"]:SetText("0") end
+if _G["LockPrepEndPrepSliderHigh"] then _G["LockPrepEndPrepSliderHigh"]:SetText("30") end
+epslider:SetScript("OnValueChanged", function(self, value)
+    value = math.floor(value + 0.5)
+    if _G["LockPrepEndPrepSliderText"] then
+        _G["LockPrepEndPrepSliderText"]:SetText(EndPrepSliderLabel(value))
+    end
+    -- self.setting guards the programmatic SetValue in OnShow from re-saving.
+    if self.setting then return end
+    LockPrepDB = LockPrepDB or {}
+    LockPrepDB.endPrepSecs = value
+    Refresh()
+end)
+epslider:SetScript("OnShow", function(self)
+    self.setting = true
+    self:SetValue(EndPrepSecs())
+    self.setting = false
+    if _G["LockPrepEndPrepSliderText"] then
+        _G["LockPrepEndPrepSliderText"]:SetText(EndPrepSliderLabel(EndPrepSecs()))
+    end
+end)
+
 -- Presets dropdown: pick 2s / 3s-5s / BGs and it checks/unchecks the right boxes
 local function PresetText()
     local key = LockPrepDB and LockPrepDB.preset
@@ -1063,12 +1109,12 @@ local function PresetText()
 end
 
 local pslbl = opt:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-pslbl:SetPoint("TOPLEFT", 16, extraY - 90)
+pslbl:SetPoint("TOPLEFT", 16, extraY - 148)
 pslbl:SetText("Preset:")
 
 -- dropdown sits below its label (labels get cut off if placed beside it)
 local psdd = CreateFrame("Frame", "LockPrepPresetDropDown", opt, "UIDropDownMenuTemplate")
-psdd:SetPoint("TOPLEFT", 0, extraY - 108)
+psdd:SetPoint("TOPLEFT", 0, extraY - 166)
 UIDropDownMenu_SetWidth(psdd, 200)
 UIDropDownMenu_Initialize(psdd, function(self, level)
     for _, key in ipairs(PRESET_ORDER) do
@@ -1086,11 +1132,11 @@ psdd:SetScript("OnShow", function() UIDropDownMenu_SetText(psdd, PresetText()) e
 
 -- mount selector: pick from your learned mounts (or /lp mount <name>)
 local mlbl = opt:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-mlbl:SetPoint("TOPLEFT", 16, extraY - 150)
+mlbl:SetPoint("TOPLEFT", 16, extraY - 208)
 mlbl:SetText("Gate mount:")
 
 local mdd = CreateFrame("Frame", "LockPrepMountDropDown", opt, "UIDropDownMenuTemplate")
-mdd:SetPoint("TOPLEFT", 0, extraY - 168)
+mdd:SetPoint("TOPLEFT", 0, extraY - 226)
 UIDropDownMenu_SetWidth(mdd, 200)
 
 local function SetMount(name)
@@ -1190,7 +1236,7 @@ mdd:SetScript("OnShow", function() UIDropDownMenu_SetText(mdd, MountName()) end)
 
 -- keybind: laid out like the Preset / Gate mount controls (label, then a box)
 local kblbl = opt:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-kblbl:SetPoint("TOPLEFT", 16, extraY - 210)
+kblbl:SetPoint("TOPLEFT", 16, extraY - 268)
 kblbl:SetText("Keybind:")
 
 local kbhint = opt:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
@@ -1290,7 +1336,7 @@ local function MakeKeyRow(labelText, buttonName, yoff)
     return row
 end
 
-MakeKeyRow("the next-step button", "LockPrepButton", extraY - 228)
+MakeKeyRow("the next-step button", "LockPrepButton", extraY - 286)
 
 opt:HookScript("OnShow", RefreshKeyButtons)
 
