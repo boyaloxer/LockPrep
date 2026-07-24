@@ -124,6 +124,18 @@ The **mount dropdown** in options is populated from mount items in your bags.
 
 ## Changelog
 
+### 0.15.10
+
+- **Changed:** Restyled the checklist and options UI (dark purple theme, countdown
+  pill, key chip, felhunter cast bar, clearer step rows).
+- **Changed:** Checklist fades out when you start mounting or when the gates open,
+  instead of lingering on "All set" after prep finishes.
+- **Changed:** Options slider renamed to **Felhunter unlock**; each preset
+  (2s / 3s-5s / BGs / Custom) stores its own unlock time.
+- **Fixed:** Custom preset no longer gets overwritten when you switch to 2s,
+  3s/5s, or BGs. Your Custom checkbox set is remembered and restored when you
+  come back.
+
 ### 0.15.9
 
 - **Changed:** Restyled the checklist and options UI (dark purple theme, countdown

@@ -203,17 +203,39 @@ end
 -- Soft time-gate for the time-sensitive finish (Felhunter + sac + Soul Link +
 -- Shadow Ward + Tainted Blood + mount). Holds them until <= EndPrepSecs() left
 -- so mashing early doesn't blow the fresh-shield/short-duration stuff. Tunable
--- via the options slider (default 12). 0 disables the gate entirely. If no
--- countdown has been detected yet (gateAt nil) we allow it - never lock the user
--- out over a missing timer; order still applies via each step's own checks.
+-- via the options slider, stored PER PRESET (2s / 3s5s / bg / custom each keep
+-- their own value). Default 12; 0 disables the gate entirely. If no countdown
+-- has been detected yet (gateAt nil) we allow it - never lock the user out over
+-- a missing timer; order still applies via each step's own checks.
 local END_PREP_DEFAULT = 12
 local END_PREP_MIN, END_PREP_MAX = 0, 30
-local function EndPrepSecs()
-    local v = LockPrepDB and LockPrepDB.endPrepSecs
+local function ClampEndPrep(v)
     if type(v) ~= "number" then return END_PREP_DEFAULT end
     if v < END_PREP_MIN then return END_PREP_MIN end
     if v > END_PREP_MAX then return END_PREP_MAX end
     return math.floor(v + 0.5)
+end
+local function CurrentPresetKey()
+    local k = LockPrepDB and LockPrepDB.preset
+    if k == "2s" or k == "3s5s" or k == "bg" or k == "custom" then return k end
+    return "custom"
+end
+local function EndPrepSecs()
+    local db = LockPrepDB
+    if not db then return END_PREP_DEFAULT end
+    local by = db.endPrepByPreset
+    if type(by) == "table" then
+        local v = by[CurrentPresetKey()]
+        if type(v) == "number" then return ClampEndPrep(v) end
+    end
+    -- Migrate pre-0.15.10 global slider (same value was shared by every preset).
+    if type(db.endPrepSecs) == "number" then return ClampEndPrep(db.endPrepSecs) end
+    return END_PREP_DEFAULT
+end
+local function SetEndPrepSecs(v)
+    LockPrepDB = LockPrepDB or {}
+    LockPrepDB.endPrepByPreset = LockPrepDB.endPrepByPreset or {}
+    LockPrepDB.endPrepByPreset[CurrentPresetKey()] = ClampEndPrep(v)
 end
 local function EndPrepReady()
     local secs = EndPrepSecs()
@@ -222,6 +244,7 @@ local function EndPrepReady()
     if t == nil then return true end
     return t <= secs
 end
+local SyncEndPrepSlider  -- fwd: options slider follows the active preset
 local function InArena()
     local _, itype = IsInInstance()
     return itype == "arena"
@@ -1165,8 +1188,8 @@ local PRESETS = {
     ["2s"]   = { label = "2s",     disabled = { hsmajor = true, spellstone = true, ritual = true } },
     ["3s5s"] = { label = "3s / 5s", disabled = { hsmajor = true, hsmaster = true, spellstone = true } },
     ["bg"]   = { label = "BGs",    disabled = { hsmajor = true, hsmaster = true, spellstone = true, taintedblood = true, voidwalker = true, sacrifice = true, shadowward = true } },
-    -- "custom" has no preset table: it leaves your checkboxes exactly as they are
-    -- so you can tick whatever you want. (Hand-editing any box also flips to this.)
+    -- "custom" restores the user's last hand-tuned checkbox set (saved in
+    -- LockPrepDB.customDisabled). Hand-editing any box also flips to this.
     ["custom"] = { label = "Custom", custom = true },
 }
 local PRESET_ORDER = { "2s", "3s5s", "bg", "custom" }
@@ -1179,17 +1202,40 @@ local function RefreshGroupChecks()
     for _, row in pairs(groupChecks) do row:Refresh() end
 end
 
+-- Persist the current checkbox set as the Custom preset so switching away to
+-- 2s/3s/BGs and back doesn't lose the user's hand-tuned config.
+local function SnapshotCustom()
+    LockPrepDB = LockPrepDB or {}
+    local copy = {}
+    for k, v in pairs(LockPrepDB.disabled or {}) do copy[k] = v end
+    LockPrepDB.customDisabled = copy
+end
+
 local function ApplyPreset(key)
     local p = PRESETS[key]; if not p then return end
     LockPrepDB = LockPrepDB or {}
-    -- "custom" keeps the current checkbox states; other presets overwrite them.
-    if not p.custom then
+    local cur = LockPrepDB.preset
+    -- Leaving Custom: remember its boxes before a named preset overwrites them.
+    if (cur == "custom" or not cur) and not p.custom then
+        SnapshotCustom()
+    end
+    if p.custom then
+        -- Restore the remembered Custom configuration (if any).
+        local saved = LockPrepDB.customDisabled
+        if saved then
+            local copy = {}
+            for k, v in pairs(saved) do copy[k] = v end
+            LockPrepDB.disabled = copy
+        end
+        -- else: first time on Custom with nothing saved -- leave boxes as-is
+    else
         LockPrepDB.disabled = {}
         for grp, v in pairs(p.disabled) do LockPrepDB.disabled[grp] = v end
     end
     LockPrepDB.preset = key
     RefreshGroupChecks()
     if UpdatePresetSeg then UpdatePresetSeg() end
+    if SyncEndPrepSlider then SyncEndPrepSlider() end
     BuildSteps(); Refresh()
 end
 
@@ -1350,8 +1396,14 @@ for _, sec in ipairs(GROUP_SECTIONS) do
                 LockPrepDB = LockPrepDB or {}
                 LockPrepDB.disabled = LockPrepDB.disabled or {}
                 LockPrepDB.disabled[k] = (not v) or nil
-                LockPrepDB.preset = "custom"  -- hand-edited => "Custom"
+                -- Hand-edit flips to Custom; carry the unlock time you were using
+                -- into Custom's per-preset slot so the slider doesn't jump.
+                local secsNow = EndPrepSecs()
+                LockPrepDB.preset = "custom"
+                SetEndPrepSecs(secsNow)
+                SnapshotCustom()              -- keep Custom's remembered set in sync
                 UpdatePresetSeg()
+                if SyncEndPrepSlider then SyncEndPrepSlider() end
                 BuildSteps(); Refresh()
             end)
     end
@@ -1384,11 +1436,11 @@ MakeCheck("Debug logging", "traces to chat",
     end)
 oy = oy - 10
 
--- Finish time-gate slider: when Felhunter + the rest of the end sequence unlock.
--- Default 12s (same as before); 0 = no gate. Existing installs keep 12 until changed.
+-- Felhunter unlock slider: per-preset (each of 2s / 3s5s / BGs / Custom stores
+-- its own value). Default 12s; 0 = no gate.
 local function EndPrepSliderLabel(v)
-    if v <= 0 then return "Finish unlock: anytime (no gate)" end
-    return "Finish unlock: " .. v .. "s left on the countdown"
+    if v <= 0 then return "Felhunter unlock: anytime (no gate)" end
+    return "Felhunter unlock: " .. v .. "s left on the countdown"
 end
 local epslider = CreateFrame("Slider", "LockPrepEndPrepSlider", opt, "OptionsSliderTemplate")
 epslider:SetPoint("TOPLEFT", 20, oy - 16)
@@ -1398,25 +1450,27 @@ epslider:SetValueStep(1)
 epslider:SetObeyStepOnDrag(true)
 if _G["LockPrepEndPrepSliderLow"] then _G["LockPrepEndPrepSliderLow"]:SetText("0") end
 if _G["LockPrepEndPrepSliderHigh"] then _G["LockPrepEndPrepSliderHigh"]:SetText("30") end
+SyncEndPrepSlider = function()
+    if not epslider then return end
+    local v = EndPrepSecs()
+    epslider.setting = true
+    epslider:SetValue(v)
+    epslider.setting = false
+    if _G["LockPrepEndPrepSliderText"] then
+        _G["LockPrepEndPrepSliderText"]:SetText(EndPrepSliderLabel(v))
+    end
+end
 epslider:SetScript("OnValueChanged", function(self, value)
     value = math.floor(value + 0.5)
     if _G["LockPrepEndPrepSliderText"] then
         _G["LockPrepEndPrepSliderText"]:SetText(EndPrepSliderLabel(value))
     end
-    -- self.setting guards the programmatic SetValue in OnShow from re-saving.
+    -- self.setting guards programmatic SetValue (preset switch / OnShow).
     if self.setting then return end
-    LockPrepDB = LockPrepDB or {}
-    LockPrepDB.endPrepSecs = value
+    SetEndPrepSecs(value)
     Refresh()
 end)
-epslider:SetScript("OnShow", function(self)
-    self.setting = true
-    self:SetValue(EndPrepSecs())
-    self.setting = false
-    if _G["LockPrepEndPrepSliderText"] then
-        _G["LockPrepEndPrepSliderText"]:SetText(EndPrepSliderLabel(EndPrepSecs()))
-    end
-end)
+epslider:SetScript("OnShow", function() SyncEndPrepSlider() end)
 oy = oy - 60
 
 -- mount selector: pick from your learned mounts (or /lp mount <name>)
