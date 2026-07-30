@@ -1244,21 +1244,50 @@ opt:SetSize(340, 400)   -- height is set after layout below
 opt:SetPoint("CENTER")
 LP_SkinPanel(opt, 0.29, 0.24, 0.41)
 -- Soften the solid panel fill so the Reynolds warlock art can read through.
-opt:SetBackdropColor(0.062, 0.053, 0.096, 0.78)
+opt:SetBackdropColor(0.062, 0.053, 0.096, 0.55)
 do
     -- Art: Wayne Reynolds / Blizzard warlock illustration (Textures\wreynolds.tga).
+    -- Cover-fit (no stretch): crop the source to the panel's aspect ratio.
     local art = opt:CreateTexture(nil, "BACKGROUND", nil, -8)
     art:SetTexture("Interface\\AddOns\\LockPrep\\Textures\\wreynolds")
     art:SetPoint("TOPLEFT", 1, -1)
     art:SetPoint("BOTTOMRIGHT", -1, 1)
-    -- Portrait is taller than the options panel — show face / pauldrons / torso.
-    art:SetTexCoord(0.06, 0.94, 0.00, 0.58)
-    art:SetVertexColor(1, 1, 1, 0.32)
+    art:SetVertexColor(1, 1, 1, 0.62)
     local wash = opt:CreateTexture(nil, "BACKGROUND", nil, -7)
     wash:SetPoint("TOPLEFT", 1, -1)
     wash:SetPoint("BOTTOMRIGHT", -1, 1)
     wash:SetTexture(WHITE8)
-    wash:SetVertexColor(0.05, 0.03, 0.10, 0.52)
+    wash:SetVertexColor(0.05, 0.03, 0.10, 0.28)
+    opt.bgArt = art
+    opt.bgWash = wash
+    -- Source TGA is 512x1024. Bias crop slightly upward so the face stays in frame.
+    local SRC_W, SRC_H = 512, 1024
+    local function FitOptionsArt()
+        local pw = opt:GetWidth() - 2
+        local ph = opt:GetHeight() - 2
+        if not pw or not ph or pw <= 0 or ph <= 0 then return end
+        local panelAspect = pw / ph
+        local imgAspect = SRC_W / SRC_H
+        local u0, u1, v0, v1
+        if panelAspect > imgAspect then
+            -- Panel wider than image: use full width, crop top/bottom.
+            local visH = SRC_W / panelAspect
+            local slack = (SRC_H - visH) / SRC_H
+            -- Keep more of the top (face / pauldrons) than the feet.
+            v0 = slack * 0.18
+            v1 = v0 + (visH / SRC_H)
+            if v1 > 1 then v1 = 1; v0 = 1 - (visH / SRC_H) end
+            u0, u1 = 0, 1
+        else
+            -- Panel taller than image: use full height, crop sides.
+            local visW = SRC_H * panelAspect
+            local side = (1 - (visW / SRC_W)) * 0.5
+            u0, u1 = side, 1 - side
+            v0, v1 = 0, 1
+        end
+        art:SetTexCoord(u0, u1, v0, v1)
+    end
+    opt.FitOptionsArt = FitOptionsArt
 end
 opt:SetMovable(true); opt:EnableMouse(true); opt:RegisterForDrag("LeftButton")
 opt:SetScript("OnDragStart", opt.StartMoving)
@@ -1706,7 +1735,9 @@ MakeKeyRow("the next-step button", "LockPrepButton", oy - 16)
 oy = oy - 44
 
 opt:SetHeight(-oy + 12)
+if opt.FitOptionsArt then opt.FitOptionsArt() end
 opt:HookScript("OnShow", function()
+    if opt.FitOptionsArt then opt.FitOptionsArt() end
     RefreshKeyButtons()
     UpdatePresetSeg()
     for _, r in ipairs(allChecks) do r:Refresh() end
