@@ -124,6 +124,11 @@ The **mount dropdown** in options is populated from mount items in your bags.
 
 ## Changelog
 
+### 0.15.15
+
+- **Changed:** Options background art (`wreynolds`) re-baked edge-to-edge so it
+  fills the whole panel like MagePrep (removed letterbox padding in the TGA).
+
 ### 0.15.10
 
 - **Changed:** Restyled the checklist and options UI (dark purple theme, countdown
