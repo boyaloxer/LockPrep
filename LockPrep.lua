@@ -1243,31 +1243,43 @@ local opt = CreateFrame("Frame", "LockPrepOptions", UIParent, "BackdropTemplate"
 opt:SetSize(340, 400)   -- height is set after layout below
 opt:SetPoint("CENTER")
 LP_SkinPanel(opt, 0.29, 0.24, 0.41)
--- Solid black/purple fill so UI behind the panel never bleeds through.
--- Art sits on top of that fill at soft alpha (transparent look without see-through).
+-- Solid black/purple fill (opaque) so UI behind the panel never bleeds through.
 opt:SetBackdropColor(0.04, 0.03, 0.07, 1)
 do
+    -- Child frame ABOVE the backdrop fill, BELOW options controls.
+    -- (Textures on the parent BACKGROUND layer sit under SetBackdrop and vanish
+    -- once the fill is fully opaque.)
+    local bg = CreateFrame("Frame", nil, opt)
+    bg:SetPoint("TOPLEFT", 1, -1)
+    bg:SetPoint("BOTTOMRIGHT", -1, 1)
+    bg:SetFrameLevel(opt:GetFrameLevel())
+    bg:EnableMouse(false)
+
     -- Art: Wayne Reynolds / Blizzard warlock illustration (Textures\wreynolds.tga).
     -- Cover-fit (no stretch): crop the source to the panel's aspect ratio.
-    local art = opt:CreateTexture(nil, "BACKGROUND", nil, -8)
+    local art = bg:CreateTexture(nil, "ARTWORK", nil, 0)
+    art:SetAllPoints(bg)
     art:SetTexture("Interface\\AddOns\\LockPrep\\Textures\\wreynolds")
-    art:SetPoint("TOPLEFT", 1, -1)
-    art:SetPoint("BOTTOMRIGHT", -1, 1)
-    art:SetVertexColor(1, 1, 1, 0.55)
-    -- Light purple tint wash over the art so controls stay readable.
-    local wash = opt:CreateTexture(nil, "BACKGROUND", nil, -7)
-    wash:SetPoint("TOPLEFT", 1, -1)
-    wash:SetPoint("BOTTOMRIGHT", -1, 1)
+    art:SetVertexColor(1, 1, 1, 0.50)
+
+    -- Light purple tint over the art so controls stay readable.
+    local wash = bg:CreateTexture(nil, "ARTWORK", nil, 1)
+    wash:SetAllPoints(bg)
     wash:SetTexture(WHITE8)
-    wash:SetVertexColor(0.08, 0.05, 0.14, 0.42)
+    wash:SetVertexColor(0.08, 0.05, 0.14, 0.35)
+
+    opt.bgLayer = bg
     opt.bgArt = art
     opt.bgWash = wash
+
     -- Source TGA is 512x1024. Bias crop slightly upward so the face stays in frame.
     local SRC_W, SRC_H = 512, 1024
     local function FitOptionsArt()
         local pw = opt:GetWidth() - 2
         local ph = opt:GetHeight() - 2
         if not pw or not ph or pw <= 0 or ph <= 0 then return end
+        -- Keep the bg layer under header/controls.
+        bg:SetFrameLevel(math.max(1, opt:GetFrameLevel()))
         local panelAspect = pw / ph
         local imgAspect = SRC_W / SRC_H
         local u0, u1, v0, v1
