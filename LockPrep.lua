@@ -1503,8 +1503,8 @@ local function EndPrepSliderLabel(v)
     return "Felhunter unlock: " .. v .. "s left on the countdown"
 end
 local epslider = CreateFrame("Slider", "LockPrepEndPrepSlider", opt, "OptionsSliderTemplate")
-epslider:SetPoint("TOPLEFT", 20, oy - 16)
-epslider:SetWidth(296)
+epslider:SetWidth(280)
+epslider:SetPoint("TOP", opt, "TOP", 0, oy - 16)
 epslider:SetMinMaxValues(END_PREP_MIN, END_PREP_MAX)
 epslider:SetValueStep(1)
 epslider:SetObeyStepOnDrag(true)
@@ -1540,9 +1540,16 @@ do
     lbl:SetText("GATE MOUNT")
     lbl:SetTextColor(0.54, 0.49, 0.66)
 end
-local mdd = CreateFrame("Frame", "LockPrepMountDropDown", opt, "UIDropDownMenuTemplate")
-mdd:SetPoint("TOPLEFT", -2, oy - 12)
-UIDropDownMenu_SetWidth(mdd, 280)
+-- Center the dropdown the same way as the unlock slider: a fixed-width row on
+-- the panel midline, then the menu template centered inside it.
+local mountWrap = CreateFrame("Frame", nil, opt)
+mountWrap:SetSize(280, 32)
+mountWrap:SetPoint("TOP", opt, "TOP", 0, oy - 12)
+local mdd = CreateFrame("Frame", "LockPrepMountDropDown", mountWrap, "UIDropDownMenuTemplate")
+-- 230 + 25 + 25 padding from UIDropDownMenu_SetWidth ≈ 280, matching the wrap.
+UIDropDownMenu_SetWidth(mdd, 230)
+mdd:ClearAllPoints()
+mdd:SetPoint("CENTER", mountWrap, "CENTER", 0, 0)
 
 local function SetMount(name)
     LockPrepDB = LockPrepDB or {}
@@ -1729,7 +1736,7 @@ end
 local function MakeKeyRow(labelText, buttonName, yoff)
     local btn = CreateFrame("Button", nil, opt, "UIPanelButtonTemplate")
     btn:SetSize(200, 24)
-    btn:SetPoint("TOPLEFT", 16, yoff)
+    btn:SetPoint("TOP", opt, "TOP", 0, yoff)
     local nt = btn:GetNormalTexture()
     if nt then nt:SetVertexColor(0.62, 0.45, 0.85) end   -- purple tint, keeps the button border/texture
     local row = {

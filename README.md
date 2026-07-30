@@ -124,6 +124,11 @@ The **mount dropdown** in options is populated from mount items in your bags.
 
 ## Changelog
 
+### 0.15.16
+
+- **Changed:** Centered the keybind button, gate mount dropdown, and Felhunter
+  unlock slider in options (section labels stay left-aligned).
+
 ### 0.15.15
 
 - **Changed:** Options background art (`wreynolds`) re-baked edge-to-edge so it
