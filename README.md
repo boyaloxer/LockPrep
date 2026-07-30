@@ -197,6 +197,12 @@ The **mount dropdown** in options is populated from mount items in your bags.
   and Sacrifice (needs the Voidwalker). The routine now runs the full chain in
   order regardless of which pet you zone in with.
 
+### 0.15.11
+
+- **New:** Options panel background uses a soft Wayne Reynolds / Blizzard
+  warlock illustration (`Textures/wreynolds.tga`) so the settings window matches
+  the addon’s theme without washing out the controls.
+
 ### 0.15.2
 
 - **New:** The gate mount works out of the box — if you haven't picked one,
@@ -238,6 +244,14 @@ The **mount dropdown** in options is populated from mount items in your bags.
 
 - Initial CurseForge release.
 
+## Art credit
+
+The options-panel background illustration is by **Wayne Reynolds**, created for
+Blizzard Entertainment / *World of Warcraft*. Included here as a low-opacity UI
+backdrop for this fan addon; all rights to the artwork belong to their
+respective owners.
+
 ## License
 
 GPL-2.0. See the [LICENSE](LICENSE) file. Copyright (C) 2026 boyaloxer.
+(Artwork is not covered by this license — see Art credit above.)

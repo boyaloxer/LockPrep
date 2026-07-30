@@ -1243,6 +1243,23 @@ local opt = CreateFrame("Frame", "LockPrepOptions", UIParent, "BackdropTemplate"
 opt:SetSize(340, 400)   -- height is set after layout below
 opt:SetPoint("CENTER")
 LP_SkinPanel(opt, 0.29, 0.24, 0.41)
+-- Soften the solid panel fill so the Reynolds warlock art can read through.
+opt:SetBackdropColor(0.062, 0.053, 0.096, 0.78)
+do
+    -- Art: Wayne Reynolds / Blizzard warlock illustration (Textures\wreynolds.tga).
+    local art = opt:CreateTexture(nil, "BACKGROUND", nil, -8)
+    art:SetTexture("Interface\\AddOns\\LockPrep\\Textures\\wreynolds")
+    art:SetPoint("TOPLEFT", 1, -1)
+    art:SetPoint("BOTTOMRIGHT", -1, 1)
+    -- Portrait is taller than the options panel — show face / pauldrons / torso.
+    art:SetTexCoord(0.06, 0.94, 0.00, 0.58)
+    art:SetVertexColor(1, 1, 1, 0.32)
+    local wash = opt:CreateTexture(nil, "BACKGROUND", nil, -7)
+    wash:SetPoint("TOPLEFT", 1, -1)
+    wash:SetPoint("BOTTOMRIGHT", -1, 1)
+    wash:SetTexture(WHITE8)
+    wash:SetVertexColor(0.05, 0.03, 0.10, 0.52)
+end
 opt:SetMovable(true); opt:EnableMouse(true); opt:RegisterForDrag("LeftButton")
 opt:SetScript("OnDragStart", opt.StartMoving)
 opt:SetScript("OnDragStop", opt.StopMovingOrSizing)
