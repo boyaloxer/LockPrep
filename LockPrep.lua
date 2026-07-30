@@ -1243,8 +1243,9 @@ local opt = CreateFrame("Frame", "LockPrepOptions", UIParent, "BackdropTemplate"
 opt:SetSize(340, 400)   -- height is set after layout below
 opt:SetPoint("CENTER")
 LP_SkinPanel(opt, 0.29, 0.24, 0.41)
--- Soften the solid panel fill so the Reynolds warlock art can read through.
-opt:SetBackdropColor(0.062, 0.053, 0.096, 0.55)
+-- Solid black/purple fill so UI behind the panel never bleeds through.
+-- Art sits on top of that fill at soft alpha (transparent look without see-through).
+opt:SetBackdropColor(0.04, 0.03, 0.07, 1)
 do
     -- Art: Wayne Reynolds / Blizzard warlock illustration (Textures\wreynolds.tga).
     -- Cover-fit (no stretch): crop the source to the panel's aspect ratio.
@@ -1252,12 +1253,13 @@ do
     art:SetTexture("Interface\\AddOns\\LockPrep\\Textures\\wreynolds")
     art:SetPoint("TOPLEFT", 1, -1)
     art:SetPoint("BOTTOMRIGHT", -1, 1)
-    art:SetVertexColor(1, 1, 1, 0.62)
+    art:SetVertexColor(1, 1, 1, 0.55)
+    -- Light purple tint wash over the art so controls stay readable.
     local wash = opt:CreateTexture(nil, "BACKGROUND", nil, -7)
     wash:SetPoint("TOPLEFT", 1, -1)
     wash:SetPoint("BOTTOMRIGHT", -1, 1)
     wash:SetTexture(WHITE8)
-    wash:SetVertexColor(0.05, 0.03, 0.10, 0.28)
+    wash:SetVertexColor(0.08, 0.05, 0.14, 0.42)
     opt.bgArt = art
     opt.bgWash = wash
     -- Source TGA is 512x1024. Bias crop slightly upward so the face stays in frame.
