@@ -1255,11 +1255,11 @@ do
     bg:SetFrameLevel(opt:GetFrameLevel())
     bg:EnableMouse(false)
 
-    -- Art: voidwalker illustration (Textures\voidwalker.tga).
+    -- Art: Wayne Reynolds warlock illustration (Textures\wreynolds2.tga).
     -- Cover-fit (no stretch): crop the source to the panel's aspect ratio.
     local art = bg:CreateTexture(nil, "ARTWORK", nil, 0)
     art:SetAllPoints(bg)
-    art:SetTexture("Interface\\AddOns\\LockPrep\\Textures\\voidwalker")
+    art:SetTexture("Interface\\AddOns\\LockPrep\\Textures\\wreynolds2")
     art:SetVertexColor(1, 1, 1, 0.50)
 
     -- Light purple tint over the art so controls stay readable.

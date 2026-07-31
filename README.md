@@ -124,6 +124,10 @@ The **mount dropdown** in options is populated from mount items in your bags.
 
 ## Changelog
 
+### 0.15.19
+
+- **Changed:** Options background art swapped to `wreynolds2`.
+
 ### 0.15.18
 
 - **Changed:** Options background art swapped to `voidwalker` (better fit with
@@ -265,9 +269,9 @@ The **mount dropdown** in options is populated from mount items in your bags.
 
 ## Art credit
 
-The options-panel background (`Textures/voidwalker.tga`) is included as a
-low-opacity UI backdrop for this fan addon. All rights to the artwork belong to
-their respective owners.
+The options-panel background (`Textures/wreynolds2.tga`) is a Wayne Reynolds /
+Blizzard *World of Warcraft* warlock illustration, included as a low-opacity UI
+backdrop. All rights to the artwork belong to their respective owners.
 
 ## License
 
