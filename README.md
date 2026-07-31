@@ -124,6 +124,11 @@ The **mount dropdown** in options is populated from mount items in your bags.
 
 ## Changelog
 
+### 0.15.18
+
+- **Changed:** Options background art swapped to `voidwalker` (better fit with
+  the purple UI than baga07).
+
 ### 0.15.17
 
 - **Changed:** Options background art swapped to `baga07` (replaces wreynolds).
@@ -260,7 +265,7 @@ The **mount dropdown** in options is populated from mount items in your bags.
 
 ## Art credit
 
-The options-panel background (`Textures/baga07.tga`) is included as a
+The options-panel background (`Textures/voidwalker.tga`) is included as a
 low-opacity UI backdrop for this fan addon. All rights to the artwork belong to
 their respective owners.
 

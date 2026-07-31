@@ -1255,11 +1255,11 @@ do
     bg:SetFrameLevel(opt:GetFrameLevel())
     bg:EnableMouse(false)
 
-    -- Art: baga07 illustration (Textures\baga07.tga).
+    -- Art: voidwalker illustration (Textures\voidwalker.tga).
     -- Cover-fit (no stretch): crop the source to the panel's aspect ratio.
     local art = bg:CreateTexture(nil, "ARTWORK", nil, 0)
     art:SetAllPoints(bg)
-    art:SetTexture("Interface\\AddOns\\LockPrep\\Textures\\baga07")
+    art:SetTexture("Interface\\AddOns\\LockPrep\\Textures\\voidwalker")
     art:SetVertexColor(1, 1, 1, 0.50)
 
     -- Light purple tint over the art so controls stay readable.
@@ -1272,8 +1272,8 @@ do
     opt.bgArt = art
     opt.bgWash = wash
 
-    -- Source TGA is 1024x1024. Bias crop slightly upward when trimming height.
-    local SRC_W, SRC_H = 1024, 1024
+    -- Source TGA is 512x1024. Bias crop slightly upward when trimming height.
+    local SRC_W, SRC_H = 512, 1024
     local function FitOptionsArt()
         local pw = opt:GetWidth() - 2
         local ph = opt:GetHeight() - 2
