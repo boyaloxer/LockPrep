@@ -1255,11 +1255,11 @@ do
     bg:SetFrameLevel(opt:GetFrameLevel())
     bg:EnableMouse(false)
 
-    -- Art: Wayne Reynolds warlock illustration (Textures\wreynolds2.tga).
+    -- Art: Wayne Reynolds / Blizzard warlock illustration (Textures\wreynolds.tga).
     -- Cover-fit (no stretch): crop the source to the panel's aspect ratio.
     local art = bg:CreateTexture(nil, "ARTWORK", nil, 0)
     art:SetAllPoints(bg)
-    art:SetTexture("Interface\\AddOns\\LockPrep\\Textures\\wreynolds2")
+    art:SetTexture("Interface\\AddOns\\LockPrep\\Textures\\wreynolds")
     art:SetVertexColor(1, 1, 1, 0.50)
 
     -- Light purple tint over the art so controls stay readable.
@@ -1272,7 +1272,7 @@ do
     opt.bgArt = art
     opt.bgWash = wash
 
-    -- Source TGA is 512x1024. Bias crop slightly upward when trimming height.
+    -- Source TGA is 512x1024. Bias crop slightly upward so the face stays in frame.
     local SRC_W, SRC_H = 512, 1024
     local function FitOptionsArt()
         local pw = opt:GetWidth() - 2
