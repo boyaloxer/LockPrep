@@ -124,6 +124,10 @@ The **mount dropdown** in options is populated from mount items in your bags.
 
 ## Changelog
 
+### 0.15.17
+
+- **Changed:** Options background art swapped to `baga07` (replaces wreynolds).
+
 ### 0.15.16
 
 - **Changed:** Centered the keybind button, gate mount dropdown, and Felhunter
@@ -256,10 +260,9 @@ The **mount dropdown** in options is populated from mount items in your bags.
 
 ## Art credit
 
-The options-panel background illustration is by **Wayne Reynolds**, created for
-Blizzard Entertainment / *World of Warcraft*. Included here as a low-opacity UI
-backdrop for this fan addon; all rights to the artwork belong to their
-respective owners.
+The options-panel background (`Textures/baga07.tga`) is included as a
+low-opacity UI backdrop for this fan addon. All rights to the artwork belong to
+their respective owners.
 
 ## License
 
