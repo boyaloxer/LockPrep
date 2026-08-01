@@ -1181,15 +1181,14 @@ end)
 -- =====================================================================
 -- Options panel (checkboxes to include/exclude step groups)
 -- =====================================================================
--- Presets: one click sets a whole configuration of checkboxes.
--- Major Healthstone + Master Spellstone are left OFF in every preset (personal
--- preference); tick them yourself if you use them.
+-- Presets: each tab keeps its OWN checkbox set (and unlock slider). Named
+-- presets start from the recipes below the first time; after that, edits stick
+-- when you leave and come back. Custom is a blank slate (everything on) until
+-- you tune it. (Pre-0.15.21: editing a box always jumped to Custom.)
 local PRESETS = {
     ["2s"]   = { label = "2s",     disabled = { hsmajor = true, spellstone = true, ritual = true } },
     ["3s5s"] = { label = "3s / 5s", disabled = { hsmajor = true, hsmaster = true, spellstone = true } },
     ["bg"]   = { label = "BGs",    disabled = { hsmajor = true, hsmaster = true, spellstone = true, taintedblood = true, voidwalker = true, sacrifice = true, shadowward = true } },
-    -- "custom" restores the user's last hand-tuned checkbox set (saved in
-    -- LockPrepDB.customDisabled). Hand-editing any box also flips to this.
     ["custom"] = { label = "Custom", custom = true },
 }
 local PRESET_ORDER = { "2s", "3s5s", "bg", "custom" }
@@ -1202,36 +1201,71 @@ local function RefreshGroupChecks()
     for _, row in pairs(groupChecks) do row:Refresh() end
 end
 
--- Persist the current checkbox set as the Custom preset so switching away to
--- 2s/3s/BGs and back doesn't lose the user's hand-tuned config.
-local function SnapshotCustom()
-    LockPrepDB = LockPrepDB or {}
+local function CopyDisabled(src)
     local copy = {}
-    for k, v in pairs(LockPrepDB.disabled or {}) do copy[k] = v end
-    LockPrepDB.customDisabled = copy
+    if type(src) == "table" then
+        for k, v in pairs(src) do copy[k] = v end
+    end
+    return copy
+end
+
+local function FactoryDisabled(key)
+    local p = PRESETS[key]
+    if not p or p.custom then return {} end
+    return CopyDisabled(p.disabled)
+end
+
+-- Ensure LockPrepDB.disabledByPreset exists and is seeded (once) from the old
+-- single-slot disabled / customDisabled fields.
+local function EnsureDisabledByPreset()
+    LockPrepDB = LockPrepDB or {}
+    if type(LockPrepDB.disabledByPreset) == "table" then return end
+    local by = {}
+    for _, key in ipairs(PRESET_ORDER) do
+        by[key] = FactoryDisabled(key)
+    end
+    -- Prefer the live checkbox table for whichever preset was active.
+    local cur = LockPrepDB.preset
+    if cur ~= "2s" and cur ~= "3s5s" and cur ~= "bg" and cur ~= "custom" then cur = "custom" end
+    if type(LockPrepDB.disabled) == "table" then
+        by[cur] = CopyDisabled(LockPrepDB.disabled)
+    end
+    -- Old Custom-only snapshot (pre-0.15.21) fills Custom if we didn't just
+    -- overwrite it from the live table above.
+    if type(LockPrepDB.customDisabled) == "table" and cur ~= "custom" then
+        by.custom = CopyDisabled(LockPrepDB.customDisabled)
+    elseif type(LockPrepDB.customDisabled) == "table" and not LockPrepDB.disabled then
+        by.custom = CopyDisabled(LockPrepDB.customDisabled)
+    end
+    LockPrepDB.disabledByPreset = by
+end
+
+local function SaveDisabledForPreset(key)
+    if not key or not PRESETS[key] then return end
+    EnsureDisabledByPreset()
+    LockPrepDB.disabledByPreset[key] = CopyDisabled(LockPrepDB.disabled)
+end
+
+local function LoadDisabledForPreset(key)
+    EnsureDisabledByPreset()
+    local saved = LockPrepDB.disabledByPreset[key]
+    if type(saved) == "table" then
+        LockPrepDB.disabled = CopyDisabled(saved)
+    else
+        LockPrepDB.disabled = FactoryDisabled(key)
+        LockPrepDB.disabledByPreset[key] = CopyDisabled(LockPrepDB.disabled)
+    end
 end
 
 local function ApplyPreset(key)
     local p = PRESETS[key]; if not p then return end
     LockPrepDB = LockPrepDB or {}
+    EnsureDisabledByPreset()
     local cur = LockPrepDB.preset
-    -- Leaving Custom: remember its boxes before a named preset overwrites them.
-    if (cur == "custom" or not cur) and not p.custom then
-        SnapshotCustom()
+    if cur == "2s" or cur == "3s5s" or cur == "bg" or cur == "custom" then
+        SaveDisabledForPreset(cur)
     end
-    if p.custom then
-        -- Restore the remembered Custom configuration (if any).
-        local saved = LockPrepDB.customDisabled
-        if saved then
-            local copy = {}
-            for k, v in pairs(saved) do copy[k] = v end
-            LockPrepDB.disabled = copy
-        end
-        -- else: first time on Custom with nothing saved -- leave boxes as-is
-    else
-        LockPrepDB.disabled = {}
-        for grp, v in pairs(p.disabled) do LockPrepDB.disabled[grp] = v end
-    end
+    LoadDisabledForPreset(key)
     LockPrepDB.preset = key
     RefreshGroupChecks()
     if UpdatePresetSeg then UpdatePresetSeg() end
@@ -1456,14 +1490,9 @@ for _, sec in ipairs(GROUP_SECTIONS) do
                 LockPrepDB = LockPrepDB or {}
                 LockPrepDB.disabled = LockPrepDB.disabled or {}
                 LockPrepDB.disabled[k] = (not v) or nil
-                -- Hand-edit flips to Custom; carry the unlock time you were using
-                -- into Custom's per-preset slot so the slider doesn't jump.
-                local secsNow = EndPrepSecs()
-                LockPrepDB.preset = "custom"
-                SetEndPrepSecs(secsNow)
-                SnapshotCustom()              -- keep Custom's remembered set in sync
-                UpdatePresetSeg()
-                if SyncEndPrepSlider then SyncEndPrepSlider() end
+                -- Stay on the active preset and remember this checkbox set for it
+                -- (same idea as the per-preset Felhunter unlock slider).
+                SaveDisabledForPreset(CurrentPresetKey())
                 BuildSteps(); Refresh()
             end)
     end
@@ -1910,6 +1939,8 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
             LockPrepDB.disabled = { hsmajor = true, spellstone = true, ritual = true } -- 2s preset
             LockPrepDB.preset = "2s"
         end
+        EnsureDisabledByPreset()
+        LoadDisabledForPreset(CurrentPresetKey())
         ApplyPos()
         ui.locked = LockPrepDB.locked or false
         UpdateSpellstoneButton()
@@ -2250,7 +2281,7 @@ SlashCmdList["LOCKPREP"] = function(msg)
         print("  /lp bindaccept <KEY>  - bind a key to accept a trade (when stones are in)")
         print("  /lp wand <name>  - set your wand's exact name (for the spellstone swap)")
         print("  /lp mount <name>  - set the mount used for the gate sprint (or pick it in /lp options)")
-        print("  /lp preset 2s|3s5s|bg|custom  - apply a preset (custom keeps your boxes)")
+        print("  /lp preset 2s|3s5s|bg|custom  - switch preset (each keeps its own boxes)")
         print("  /lp spellstone  - how the spellstone dispel/swap button works")
         print("  /lp status  - show your keybinds + what the next press will cast")
     end
